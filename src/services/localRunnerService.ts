@@ -1,0 +1,568 @@
+// Simple Local Runner Database Service
+// Stores runner data locally in browser storage for auto-completion
+
+export interface LocalRunner {
+  id: string;
+  name: {
+    first: string;
+    last: string;
+  };
+  club: string;
+  birthYear?: number;
+  sex?: 'M' | 'F';
+  cardNumber?: number;
+  nationality?: string;
+  phone?: string;
+  email?: string;
+  lastUsed: Date;
+  timesUsed: number;
+}
+
+class LocalRunnerService {
+  private readonly STORAGE_KEY = 'local_runner_database';
+  private runners: LocalRunner[] = [];
+
+  constructor() {
+    this.loadRunners();
+  }
+
+  /**
+   * Load runners from localStorage
+   */
+  private loadRunners(): void {
+    try {
+      const stored = localStorage.getItem(this.STORAGE_KEY);
+      if (stored) {
+        const data = JSON.parse(stored);
+        this.runners = data.map((runner: any) => ({
+          ...runner,
+          lastUsed: new Date(runner.lastUsed)
+        }));
+        console.log(`[LocalRunner] Loaded ${this.runners.length} runners from local storage`);
+      }
+    } catch (error) {
+      console.error('[LocalRunner] Error loading runners:', error);
+      this.runners = [];
+    }
+  }
+
+  /**
+   * Save runners to localStorage
+   */
+  private saveRunners(): void {
+    try {
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.runners));
+    } catch (error) {
+      console.error('[LocalRunner] Error saving runners:', error);
+    }
+  }
+
+  /**
+   * Search for runners by name
+   */
+  searchRunners(searchName: string): LocalRunner[] {
+    const searchTerm = searchName.toLowerCase().trim();
+    if (searchTerm.length < 2) return [];
+
+    return this.runners
+      .filter(runner => {
+        const fullName = `${runner.name.first} ${runner.name.last}`.toLowerCase();
+        const firstNameMatch = runner.name.first.toLowerCase().includes(searchTerm);
+        const lastNameMatch = runner.name.last.toLowerCase().includes(searchTerm);
+        const fullNameMatch = fullName.includes(searchTerm);
+        
+        return firstNameMatch || lastNameMatch || fullNameMatch;
+      })
+      .sort((a, b) => {
+        // Sort by relevance and usage frequency
+        const aFullName = `${a.name.first} ${a.name.last}`.toLowerCase();
+        const bFullName = `${b.name.first} ${b.name.last}`.toLowerCase();
+        
+        // Exact matches first
+        if (aFullName === searchTerm && bFullName !== searchTerm) return -1;
+        if (bFullName === searchTerm && aFullName !== searchTerm) return 1;
+        
+        // Then by times used (more frequently used first)
+        if (a.timesUsed !== b.timesUsed) {
+          return b.timesUsed - a.timesUsed;
+        }
+        
+        // Finally by last used
+        return b.lastUsed.getTime() - a.lastUsed.getTime();
+      })
+      .slice(0, 10); // Limit to top 10 results
+  }
+
+  /**
+   * Search for a runner by card number
+   */
+  searchByCardNumber(cardNumber: number | string): LocalRunner | null {
+    const cardNum = typeof cardNumber === 'string' ? parseInt(cardNumber) : cardNumber;
+    if (!cardNum || isNaN(cardNum)) return null;
+
+    const runner = this.runners.find(r => r.cardNumber === cardNum);
+    if (runner) {
+      console.log(`[LocalRunner] Found runner by card ${cardNum}: ${runner.name.first} ${runner.name.last}`);
+      return runner;
+    }
+
+    console.log(`[LocalRunner] No runner found with card ${cardNum}`);
+    return null;
+  }
+
+  /**
+   * Add or update a runner record
+   */
+  addRunner(runnerData: Omit<LocalRunner, 'id' | 'lastUsed' | 'timesUsed'>): LocalRunner {
+    // Check for existing runner
+    const existingRunner = this.runners.find(r => 
+      r.name.first.toLowerCase() === runnerData.name.first.toLowerCase() &&
+      r.name.last.toLowerCase() === runnerData.name.last.toLowerCase()
+    );
+
+    if (existingRunner) {
+      // Update existing runner
+      existingRunner.club = runnerData.club || existingRunner.club;
+      existingRunner.birthYear = runnerData.birthYear || existingRunner.birthYear;
+      existingRunner.sex = runnerData.sex || existingRunner.sex;
+      existingRunner.cardNumber = runnerData.cardNumber || existingRunner.cardNumber;
+      existingRunner.nationality = runnerData.nationality || existingRunner.nationality;
+      existingRunner.phone = runnerData.phone || existingRunner.phone;
+      existingRunner.email = runnerData.email || existingRunner.email;
+      existingRunner.lastUsed = new Date();
+      existingRunner.timesUsed += 1;
+      
+      this.saveRunners();
+      console.log(`[LocalRunner] Updated runner: ${existingRunner.name.first} ${existingRunner.name.last} (used ${existingRunner.timesUsed} times)`);
+      return existingRunner;
+    } else {
+      // Add new runner
+      const newRunner: LocalRunner = {
+        ...runnerData,
+        id: `runner_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        lastUsed: new Date(),
+        timesUsed: 1,
+      };
+      this.runners.push(newRunner);
+      this.saveRunners();
+      console.log(`[LocalRunner] Added new runner: ${newRunner.name.first} ${newRunner.name.last}`);
+      return newRunner;
+    }
+  }
+
+  /**
+   * Record usage of a runner (when they're selected for auto-completion)
+   */
+  recordUsage(runnerId: string): void {
+    const runner = this.runners.find(r => r.id === runnerId);
+    if (runner) {
+      runner.lastUsed = new Date();
+      runner.timesUsed += 1;
+      this.saveRunners();
+    }
+  }
+
+  /**
+   * Get all runners (for management)
+   */
+  getAllRunners(): LocalRunner[] {
+    return [...this.runners].sort((a, b) => 
+      `${a.name.first} ${a.name.last}`.localeCompare(`${b.name.first} ${b.name.last}`)
+    );
+  }
+
+  /**
+   * Import runners from entries (learn from manual entries)
+   */
+  learnFromEntry(entry: any): void {
+    if (!entry.name?.first || !entry.name?.last) return;
+
+    const runnerData = {
+      name: {
+        first: entry.name.first.trim(),
+        last: entry.name.last.trim(),
+      },
+      club: entry.club?.trim() || '',
+      birthYear: entry.birthYear ? parseInt(entry.birthYear.toString()) : undefined,
+      sex: entry.sex as 'M' | 'F' | undefined,
+      cardNumber: entry.cardNumber ? parseInt(entry.cardNumber.toString()) : undefined,
+      phone: entry.phone?.trim() || '',
+      nationality: entry.nationality?.trim() || '',
+    };
+
+    // Only learn if we have some meaningful data beyond just name and club
+    if (runnerData.birthYear || runnerData.sex || runnerData.cardNumber || runnerData.phone) {
+      this.addRunner(runnerData);
+    }
+  }
+
+  /**
+   * Update an existing runner
+   */
+  updateRunner(runnerId: string, updates: Partial<Omit<LocalRunner, 'id' | 'lastUsed' | 'timesUsed'>>): LocalRunner | null {
+    const runnerIndex = this.runners.findIndex(r => r.id === runnerId);
+    if (runnerIndex === -1) {
+      console.warn(`[LocalRunner] Runner with ID ${runnerId} not found`);
+      return null;
+    }
+
+    const runner = this.runners[runnerIndex];
+    
+    // Update fields if provided
+    if (updates.name) {
+      runner.name = updates.name;
+    }
+    if (updates.club !== undefined) {
+      runner.club = updates.club;
+    }
+    if (updates.birthYear !== undefined) {
+      runner.birthYear = updates.birthYear;
+    }
+    if (updates.sex !== undefined) {
+      runner.sex = updates.sex;
+    }
+    if (updates.cardNumber !== undefined) {
+      runner.cardNumber = updates.cardNumber;
+    }
+    if (updates.nationality !== undefined) {
+      runner.nationality = updates.nationality;
+    }
+    if (updates.phone !== undefined) {
+      runner.phone = updates.phone;
+    }
+    if (updates.email !== undefined) {
+      runner.email = updates.email;
+    }
+
+    // Update last used timestamp
+    runner.lastUsed = new Date();
+
+    this.saveRunners();
+    console.log(`[LocalRunner] Updated runner: ${runner.name.first} ${runner.name.last}`);
+    return runner;
+  }
+
+  /**
+   * Delete a runner
+   */
+  deleteRunner(runnerId: string): boolean {
+    const runnerIndex = this.runners.findIndex(r => r.id === runnerId);
+    if (runnerIndex === -1) {
+      console.warn(`[LocalRunner] Runner with ID ${runnerId} not found`);
+      return false;
+    }
+
+    const runner = this.runners[runnerIndex];
+    this.runners.splice(runnerIndex, 1);
+    this.saveRunners();
+    console.log(`[LocalRunner] Deleted runner: ${runner.name.first} ${runner.name.last}`);
+    return true;
+  }
+
+  /**
+   * Clear all runners
+   */
+  clearAllRunners(): void {
+    this.runners = [];
+    this.saveRunners();
+    console.log('[LocalRunner] Cleared all runners');
+  }
+
+  /**
+   * Alternative method name for compatibility
+   */
+  clearAll(): void {
+    this.clearAllRunners();
+  }
+
+  /**
+   * Bulk import runners from CSV data (when entries are imported)
+   */
+  bulkLearnFromEntries(entries: any[]): { imported: number, updated: number } {
+    let imported = 0;
+    let updated = 0;
+    const initialCount = this.runners.length;
+
+    console.log(`[LocalRunner] Learning from ${entries.length} imported entries...`);
+
+    entries.forEach(entry => {
+      if (!entry.name?.first || !entry.name?.last) return;
+
+      const runnerData = {
+        name: {
+          first: entry.name.first.trim(),
+          last: entry.name.last.trim(),
+        },
+        club: entry.club?.trim() || '',
+        birthYear: entry.birthYear ? parseInt(entry.birthYear.toString()) : undefined,
+        sex: entry.sex as 'M' | 'F' | undefined,
+        cardNumber: entry.cardNumber ? parseInt(entry.cardNumber.toString()) : undefined,
+        phone: entry.phone?.trim() || '',
+        nationality: entry.nationality?.trim() || '',
+        email: entry.email?.trim() || '',
+      };
+
+      // Learn even if minimal data - imported entries are valuable
+      const existingRunner = this.runners.find(r => 
+        r.name.first.toLowerCase() === runnerData.name.first.toLowerCase() &&
+        r.name.last.toLowerCase() === runnerData.name.last.toLowerCase()
+      );
+
+      if (existingRunner) {
+        // Update with new data if available
+        let hasUpdates = false;
+        if (runnerData.club && !existingRunner.club) {
+          existingRunner.club = runnerData.club;
+          hasUpdates = true;
+        }
+        if (runnerData.birthYear && !existingRunner.birthYear) {
+          existingRunner.birthYear = runnerData.birthYear;
+          hasUpdates = true;
+        }
+        if (runnerData.sex && !existingRunner.sex) {
+          existingRunner.sex = runnerData.sex;
+          hasUpdates = true;
+        }
+        if (runnerData.cardNumber && !existingRunner.cardNumber) {
+          existingRunner.cardNumber = runnerData.cardNumber;
+          hasUpdates = true;
+        }
+        if (runnerData.phone && !existingRunner.phone) {
+          existingRunner.phone = runnerData.phone;
+          hasUpdates = true;
+        }
+        if (runnerData.email && !existingRunner.email) {
+          existingRunner.email = runnerData.email;
+          hasUpdates = true;
+        }
+        if (hasUpdates) {
+          existingRunner.lastUsed = new Date();
+          updated++;
+        }
+      } else {
+        // Add new runner
+        const newRunner: LocalRunner = {
+          ...runnerData,
+          id: `runner_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          lastUsed: new Date(),
+          timesUsed: 0, // Don't increment usage for bulk import
+        };
+        this.runners.push(newRunner);
+        imported++;
+      }
+    });
+
+    if (imported > 0 || updated > 0) {
+      this.saveRunners();
+      console.log(`[LocalRunner] Bulk import complete: ${imported} new, ${updated} updated`);
+    }
+
+    return { imported, updated };
+  }
+
+  /**
+   * Export runner database to JSON format (for portability)
+   */
+  exportDatabase(): string {
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      version: '2.0',
+      platform: 'MeOS-Entry-Build',
+      totalRunners: this.runners.length,
+      runners: this.runners.map(runner => ({
+        ...runner,
+        lastUsed: runner.lastUsed.toISOString()
+      }))
+    };
+    
+    return JSON.stringify(exportData, null, 2);
+  }
+
+  /**
+   * Import runner database from JSON format (for portability)
+   */
+  importDatabase(jsonData: string, mode: 'merge' | 'replace' = 'merge'): { imported: number, updated: number, errors: string[] } {
+    const errors: string[] = [];
+    let imported = 0;
+    let updated = 0;
+
+    try {
+      const data = JSON.parse(jsonData);
+      
+      if (!data.runners || !Array.isArray(data.runners)) {
+        throw new Error('Invalid format: missing runners array');
+      }
+
+      // If replace mode, clear existing data
+      if (mode === 'replace') {
+        this.runners = [];
+        console.log('[LocalRunner] Cleared existing database for replacement');
+      }
+
+      console.log(`[LocalRunner] Importing ${data.runners.length} runners in ${mode} mode...`);
+
+      data.runners.forEach((runnerData: any, index: number) => {
+        try {
+          if (!runnerData.name?.first || !runnerData.name?.last) {
+            errors.push(`Runner ${index + 1}: Missing name`);
+            return;
+          }
+
+          const existingRunner = this.runners.find(r => 
+            r.name.first.toLowerCase() === runnerData.name.first.toLowerCase() &&
+            r.name.last.toLowerCase() === runnerData.name.last.toLowerCase()
+          );
+
+          if (existingRunner && mode === 'merge') {
+            // Update existing runner with imported data
+            existingRunner.club = runnerData.club || existingRunner.club;
+            existingRunner.birthYear = runnerData.birthYear || existingRunner.birthYear;
+            existingRunner.sex = runnerData.sex || existingRunner.sex;
+            existingRunner.cardNumber = runnerData.cardNumber || existingRunner.cardNumber;
+            existingRunner.nationality = runnerData.nationality || existingRunner.nationality;
+            existingRunner.phone = runnerData.phone || existingRunner.phone;
+            existingRunner.email = runnerData.email || existingRunner.email;
+            existingRunner.timesUsed = Math.max(existingRunner.timesUsed, runnerData.timesUsed || 0);
+            existingRunner.lastUsed = new Date(Math.max(
+              existingRunner.lastUsed.getTime(),
+              new Date(runnerData.lastUsed || runnerData.lastUsed || Date.now()).getTime()
+            ));
+            updated++;
+          } else {
+            // Add new runner
+            const newRunner: LocalRunner = {
+              id: runnerData.id || `runner_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              name: {
+                first: runnerData.name.first.trim(),
+                last: runnerData.name.last.trim(),
+              },
+              club: runnerData.club || '',
+              birthYear: runnerData.birthYear,
+              sex: runnerData.sex,
+              cardNumber: runnerData.cardNumber,
+              nationality: runnerData.nationality || '',
+              phone: runnerData.phone || '',
+              email: runnerData.email || '',
+              lastUsed: new Date(runnerData.lastUsed || Date.now()),
+              timesUsed: runnerData.timesUsed || 0,
+            };
+            this.runners.push(newRunner);
+            imported++;
+          }
+        } catch (error) {
+          errors.push(`Runner ${index + 1}: ${error}`);
+        }
+      });
+
+      if (imported > 0 || updated > 0) {
+        this.saveRunners();
+        console.log(`[LocalRunner] Import complete: ${imported} new, ${updated} updated, ${errors.length} errors`);
+      }
+
+    } catch (error) {
+      errors.push(`Parse error: ${error}`);
+    }
+
+    return { imported, updated, errors };
+  }
+
+  /**
+   * Try to populate from MeOS API runner lookup (one-time bulk operation)
+   */
+  async bulkPopulateFromMeOS(commonNames: string[] = []): Promise<{ found: number, errors: string[] }> {
+    const errors: string[] = [];
+    let found = 0;
+
+    // Use a common list of names if provided, or try some common orienteering names
+    const defaultNames = [
+      'Anderson', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez',
+      'Hernandez', 'Lopez', 'Gonzalez', 'Wilson', 'Anderson', 'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin',
+      'Lee', 'Perez', 'Thompson', 'White', 'Harris', 'Sanchez', 'Clark', 'Ramirez', 'Lewis', 'Robinson'
+    ];
+    
+    const namesToTry = commonNames.length > 0 ? commonNames : defaultNames;
+    
+    console.log(`[LocalRunner] Attempting to populate from MeOS with ${namesToTry.length} common names...`);
+    
+    // Import MeOS API
+    const { MeosApiClient } = await import('./meosApi');
+    const meosApi = new MeosApiClient();
+    
+    // Test connection first
+    const connected = await meosApi.testConnection();
+    if (!connected) {
+      errors.push('Cannot connect to MeOS API');
+      return { found, errors };
+    }
+    
+    for (const name of namesToTry) {
+      try {
+        const runners = await meosApi.lookupRunners(name);
+        
+        for (const runner of runners) {
+          if (runner.name && runner.name.trim()) {
+            const [firstName, ...lastNameParts] = runner.name.split(' ');
+            const lastName = lastNameParts.join(' ');
+            
+            if (firstName && lastName) {
+              const existingRunner = this.runners.find(r => 
+                r.name.first.toLowerCase() === firstName.toLowerCase() &&
+                r.name.last.toLowerCase() === lastName.toLowerCase()
+              );
+              
+              if (!existingRunner) {
+                const newRunner: LocalRunner = {
+                  id: `meos_${runner.id || Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  name: { first: firstName, last: lastName },
+                  club: runner.club || '',
+                  birthYear: runner.birthYear,
+                  sex: runner.sex as 'M' | 'F' | undefined,
+                  cardNumber: runner.cardNumber,
+                  nationality: runner.nationality || '',
+                  phone: '',
+                  email: '',
+                  lastUsed: new Date(),
+                  timesUsed: 0, // Don't count bulk population as usage
+                };
+                this.runners.push(newRunner);
+                found++;
+              }
+            }
+          }
+        }
+        
+        // Small delay to be nice to MeOS API
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+      } catch (error) {
+        errors.push(`Failed to lookup '${name}': ${error}`);
+      }
+    }
+    
+    if (found > 0) {
+      this.saveRunners();
+      console.log(`[LocalRunner] Bulk MeOS population complete: ${found} runners added`);
+    }
+    
+    return { found, errors };
+  }
+
+  /**
+   * Get database statistics
+   */
+  getStats(): { total: number, lastUsed?: Date, totalUsage: number } {
+    const totalUsage = this.runners.reduce((sum, r) => sum + r.timesUsed, 0);
+    const lastUsed = this.runners.length > 0 
+      ? new Date(Math.max(...this.runners.map(r => r.lastUsed.getTime())))
+      : undefined;
+      
+    return {
+      total: this.runners.length,
+      totalUsage,
+      lastUsed
+    };
+  }
+}
+
+export const localRunnerService = new LocalRunnerService();
+export default LocalRunnerService;

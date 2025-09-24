@@ -1,0 +1,119 @@
+{
+  "exportedAt": "2025-09-18T16:30:00.000Z",
+  "version": "1.0",
+  "totalEntries": 4,
+  "entries": [
+    {
+      "id": "local_1726674600000_abc123456",
+      "name": {
+        "first": "John",
+        "last": "Smith"
+      },
+      "club": "Downtown OC",
+      "birthYear": "1985",
+      "sex": "M",
+      "nationality": "1",
+      "phone": "(555) 123-4567",
+      "classId": "1",
+      "className": "Blue",
+      "cardNumber": "123456",
+      "fee": 25,
+      "status": "pending",
+      "checkedInAt": null,
+      "submittedToMeosAt": null,
+      "meosEntryId": null,
+      "importedFrom": "jotform",
+      "importedAt": "2025-09-18T15:00:00.000Z",
+      "issues": {
+        "needsRentalCard": false,
+        "missingBirthYear": false,
+        "missingSex": false,
+        "placeholderCard": false
+      }
+    },
+    {
+      "id": "local_1726674660000_def789012",
+      "name": {
+        "first": "Sarah",
+        "last": "Johnson"
+      },
+      "club": "Valley Orienteers",
+      "birthYear": "1990",
+      "sex": "F",
+      "nationality": "1",
+      "phone": "(555) 234-5678",
+      "classId": "2",
+      "className": "Green",
+      "cardNumber": "0",
+      "fee": 25,
+      "status": "checked-in",
+      "checkedInAt": "2025-09-18T14:30:00.000Z",
+      "submittedToMeosAt": "2025-09-18T14:30:00.000Z",
+      "meosEntryId": "2",
+      "importedFrom": "jotform",
+      "importedAt": "2025-09-18T14:00:00.000Z",
+      "issues": {
+        "needsRentalCard": true,
+        "missingBirthYear": false,
+        "missingSex": false,
+        "placeholderCard": false
+      }
+    },
+    {
+      "id": "local_1726674720000_ghi345678",
+      "name": {
+        "first": "Mike",
+        "last": "Chen"
+      },
+      "club": "City OC",
+      "birthYear": "1992",
+      "sex": "M",
+      "nationality": "1",
+      "phone": "",
+      "classId": "1",
+      "className": "Blue",
+      "cardNumber": "789012",
+      "fee": 25,
+      "status": "pending",
+      "checkedInAt": null,
+      "submittedToMeosAt": null,
+      "meosEntryId": null,
+      "importedFrom": "jotform",
+      "importedAt": "2025-09-18T13:30:00.000Z",
+      "issues": {
+        "needsRentalCard": false,
+        "missingBirthYear": false,
+        "missingSex": false,
+        "placeholderCard": false
+      }
+    },
+    {
+      "id": "local_1726674780000_jkl901234",
+      "name": {
+        "first": "Emily",
+        "last": "Davis"
+      },
+      "club": "Summit Orienteering",
+      "birthYear": "1988",
+      "sex": "F",
+      "nationality": "1",
+      "phone": "(555) 345-6789",
+      "classId": "3",
+      "className": "Red",
+      "cardNumber": "456789",
+      "fee": 25,
+      "status": "pending",
+      "checkedInAt": null,
+      "submittedToMeosAt": null,
+      "meosEntryId": null,
+      "importedFrom": "manual",
+      "importedAt": "2025-09-18T13:00:00.000Z",
+      "issues": {
+        "needsRentalCard": false,
+        "missingBirthYear": false,
+        "missingSex": false,
+        "placeholderCard": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,449 @@
+// Local Runner Database Service  
+// Reads MeOS binary database files directly when REST API is not available
+
+export interface RunnerRecord {
+  id: string;
+  name: {
+    first: string;
+    last: string;
+  };
+  club: string;
+  birthYear?: number;
+  sex?: 'M' | 'F';
+  cardNumber?: number;
+  nationality?: string;
+  phone?: string;
+  email?: string;
+  lastUsed: Date;
+}
+
+// MeOS Database structure constants (from MeOS source code)
+const BASE_NAME_LENGTH_UTF = 96;
+const RUNNER_DB_ENTRY_SIZE = BASE_NAME_LENGTH_UTF + 4 + 4 + 3 + 1 + 2 + 2 + 8; // 120 bytes
+
+// Known MeOS installation paths
+const MEOS_PATHS = [
+  'C:/Program Files/MeOS41/database.wpersons',
+  'C:/Program Files/MeOS40/database.wpersons',
+  'C:/Program Files/MeOS/database.wpersons',
+  './database.wpersons'
+];
+
+class RunnerDatabaseService {
+  private readonly STORAGE_KEY = 'meos_runner_database';
+  private runners: RunnerRecord[] = [];
+  private lastMeosCheck: number = 0;
+  private readonly MEOS_CHECK_INTERVAL = 60000; // Check MeOS files every minute
+
+  constructor() {
+    this.loadRunners();
+    this.checkMeosDatabase();
+  }
+
+  /**
+   * Load runners from localStorage
+   */
+  private loadRunners(): void {
+    try {
+      const stored = localStorage.getItem(this.STORAGE_KEY);
+      if (stored) {
+        const data = JSON.parse(stored);
+        this.runners = data.map((runner: any) => ({
+          ...runner,
+          lastUsed: new Date(runner.lastUsed)
+        }));
+        console.log(`[RunnerDatabase] Loaded ${this.runners.length} runners from local database`);
+      }
+    } catch (error) {
+      console.error('[RunnerDatabase] Error loading runners:', error);
+      this.runners = [];
+    }
+  }
+
+  /**
+   * Save runners to localStorage
+   */
+  private saveRunners(): void {
+    try {
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.runners));
+    } catch (error) {
+      console.error('[RunnerDatabase] Error saving runners:', error);
+    }
+  }
+
+  /**
+   * Check and load MeOS database if available
+   */
+  private async checkMeosDatabase(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastMeosCheck < this.MEOS_CHECK_INTERVAL) return;
+    
+    this.lastMeosCheck = now;
+    
+    try {
+      // Try to find MeOS database file
+      for (const path of MEOS_PATHS) {
+        try {
+          const response = await fetch(path);
+          if (response.ok) {
+            const buffer = await response.arrayBuffer();
+            await this.parseMeosDatabase(buffer);
+            console.log(`[RunnerDatabase] Loaded MeOS database from ${path}`);
+            return;
+          }
+        } catch (error) {
+          // File not accessible, try next path
+          continue;
+        }
+      }
+      
+      console.log('[RunnerDatabase] No MeOS database files found');
+    } catch (error) {
+      console.error('[RunnerDatabase] Error checking MeOS database:', error);
+    }
+  }
+
+  /**
+   * Parse MeOS binary database format
+   */
+  private async parseMeosDatabase(buffer: ArrayBuffer): Promise<void> {
+    try {
+      const view = new DataView(buffer);
+      let offset = 0;
+      
+      // Check if file has header (version >= 2)
+      if (buffer.byteLength >= 12) {
+        const version = view.getInt32(offset, true); // little-endian
+        offset += 4;
+        
+        if (version === 5460002 || version === 5460003 || version === 5460004) {
+          // Has header with version, dataDate, dataTime
+          const dataDate = view.getInt32(offset, true);
+          offset += 4;
+          const dataTime = view.getInt32(offset, true);
+          offset += 4;
+          
+          console.log(`[RunnerDatabase] MeOS database version: ${version}, date: ${dataDate}, time: ${dataTime}`);
+        } else {
+          // No header, start from beginning
+          offset = 0;
+        }
+      }
+      
+      // Parse runner entries
+      const remainingBytes = buffer.byteLength - offset;
+      const entryCount = Math.floor(remainingBytes / RUNNER_DB_ENTRY_SIZE);
+      
+      console.log(`[RunnerDatabase] Parsing ${entryCount} runner entries`);
+      
+      const meosRunners: RunnerRecord[] = [];
+      
+      for (let i = 0; i < entryCount; i++) {
+        const entryOffset = offset + (i * RUNNER_DB_ENTRY_SIZE);
+        const runner = this.parseRunnerEntry(view, entryOffset);
+        
+        if (runner && !this.isRunnerRemoved(view, entryOffset)) {
+          meosRunners.push(runner);
+        }
+      }
+      
+      // Merge with existing local runners
+      console.log(`[RunnerDatabase] Loaded ${meosRunners.length} runners from MeOS database`);
+      this.mergeWithMeosRunners(meosRunners);
+      
+    } catch (error) {
+      console.error('[RunnerDatabase] Error parsing MeOS database:', error);
+    }
+  }
+
+  /**
+   * Parse a single runner entry from MeOS binary format
+   */
+  private parseRunnerEntry(view: DataView, offset: number): RunnerRecord | null {
+    try {
+      // Read name (UTF-8, null-terminated, up to BASE_NAME_LENGTH_UTF bytes)
+      const nameBytes = new Uint8Array(view.buffer, offset, BASE_NAME_LENGTH_UTF);
+      const nameEndIndex = nameBytes.indexOf(0);
+      const nameData = nameBytes.slice(0, nameEndIndex === -1 ? BASE_NAME_LENGTH_UTF : nameEndIndex);
+      const fullName = new TextDecoder('utf-8').decode(nameData).trim();
+      
+      if (!fullName) return null;
+      
+      // Parse name into first/last
+      const nameParts = fullName.split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      
+      offset += BASE_NAME_LENGTH_UTF;
+      
+      // Read other fields
+      const cardNo = view.getInt32(offset, true);
+      offset += 4;
+      
+      const clubNo = view.getInt32(offset, true);
+      offset += 4;
+      
+      // nationality (3 bytes)
+      const nationalBytes = new Uint8Array(view.buffer, offset, 3);
+      const nationality = new TextDecoder('utf-8').decode(nationalBytes).replace(/\0/g, '').trim();
+      offset += 3;
+      
+      // sex (1 byte)
+      const sexByte = view.getUint8(offset);
+      const sex = sexByte === 77 ? 'M' : sexByte === 70 ? 'F' : undefined; // 77='M', 70='F'
+      offset += 1;
+      
+      // birth year (2 bytes)
+      const birthYear = view.getInt16(offset, true);
+      offset += 2;
+      
+      // reserved (2 bytes) - contains birth month/day info
+      const reserved = view.getInt16(offset, true);
+      offset += 2;
+      
+      // extId (8 bytes)
+      const extId = view.getBigInt64(offset, true);
+      offset += 8;
+      
+      return {
+        id: `meos_${extId.toString()}`,
+        name: { first: firstName, last: lastName },
+        club: clubNo.toString(), // Will need to resolve club name separately
+        birthYear: birthYear > 0 ? birthYear : undefined,
+        sex: sex,
+        cardNumber: cardNo > 0 ? cardNo : undefined,
+        nationality: nationality || undefined,
+        lastUsed: new Date()
+      };
+      
+    } catch (error) {
+      console.error('[RunnerDatabase] Error parsing runner entry at offset', offset, error);
+      return null;
+    }
+  }
+
+  /**
+   * Check if runner entry is marked as removed
+   */
+  private isRunnerRemoved(view: DataView, offset: number): boolean {
+    try {
+      // reserved field is at offset + BASE_NAME_LENGTH_UTF + 4 + 4 + 3 + 1 + 2
+      const reservedOffset = offset + BASE_NAME_LENGTH_UTF + 4 + 4 + 3 + 1 + 2;
+      const reserved = view.getInt16(reservedOffset, true);
+      return (reserved & 1) === 1; // Check if bit 0 is set (removed flag)
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Merge MeOS runners with existing local runners
+   */
+  private mergeWithMeosRunners(meosRunners: RunnerRecord[]): void {
+    let added = 0;
+    let updated = 0;
+    
+    for (const meosRunner of meosRunners) {
+      const existingRunner = this.runners.find(r => 
+        r.name.first.toLowerCase() === meosRunner.name.first.toLowerCase() &&
+        r.name.last.toLowerCase() === meosRunner.name.last.toLowerCase()
+      );
+      
+      if (existingRunner) {
+        // Update existing runner with MeOS data if MeOS has more complete info
+        let hasUpdates = false;
+        
+        if (meosRunner.cardNumber && !existingRunner.cardNumber) {
+          existingRunner.cardNumber = meosRunner.cardNumber;
+          hasUpdates = true;
+        }
+        
+        if (meosRunner.birthYear && !existingRunner.birthYear) {
+          existingRunner.birthYear = meosRunner.birthYear;
+          hasUpdates = true;
+        }
+        
+        if (meosRunner.sex && !existingRunner.sex) {
+          existingRunner.sex = meosRunner.sex;
+          hasUpdates = true;
+        }
+        
+        if (hasUpdates) {
+          updated++;
+        }
+      } else {
+        // Add new runner from MeOS
+        this.runners.push(meosRunner);
+        added++;
+      }
+    }
+    
+    if (added > 0 || updated > 0) {
+      console.log(`[RunnerDatabase] MeOS merge: ${added} added, ${updated} updated`);
+      this.saveRunners();
+    }
+  }
+
+  /**
+   * Search for runners by name (with periodic MeOS check)
+   */
+  searchRunners(searchName: string): RunnerRecord[] {
+    // Periodically check MeOS database for updates
+    this.checkMeosDatabase().catch(error => {
+      console.log('[RunnerDatabase] MeOS check failed silently:', error.message);
+    });
+    const searchTerm = searchName.toLowerCase().trim();
+    if (searchTerm.length < 2) return [];
+
+    return this.runners
+      .filter(runner => {
+        const fullName = `${runner.name.first} ${runner.name.last}`.toLowerCase();
+        const firstNameMatch = runner.name.first.toLowerCase().includes(searchTerm);
+        const lastNameMatch = runner.name.last.toLowerCase().includes(searchTerm);
+        const fullNameMatch = fullName.includes(searchTerm);
+        
+        return firstNameMatch || lastNameMatch || fullNameMatch;
+      })
+      .sort((a, b) => {
+        // Sort by relevance and last used
+        const aFullName = `${a.name.first} ${a.name.last}`.toLowerCase();
+        const bFullName = `${b.name.first} ${b.name.last}`.toLowerCase();
+        
+        // Exact matches first
+        if (aFullName === searchTerm && bFullName !== searchTerm) return -1;
+        if (bFullName === searchTerm && aFullName !== searchTerm) return 1;
+        
+        // Then by last used
+        return b.lastUsed.getTime() - a.lastUsed.getTime();
+      })
+      .slice(0, 10); // Limit to top 10 results
+  }
+
+  /**
+   * Add or update a runner record
+   */
+  addRunner(runner: Omit<RunnerRecord, 'id' | 'lastUsed'>): RunnerRecord {
+    // Check for existing runner
+    const existingRunner = this.runners.find(r => 
+      r.name.first.toLowerCase() === runner.name.first.toLowerCase() &&
+      r.name.last.toLowerCase() === runner.name.last.toLowerCase()
+    );
+
+    if (existingRunner) {
+      // Update existing runner
+      Object.assign(existingRunner, runner, { lastUsed: new Date() });
+      this.saveRunners();
+      console.log(`[RunnerDatabase] Updated runner: ${existingRunner.name.first} ${existingRunner.name.last}`);
+      return existingRunner;
+    } else {
+      // Add new runner
+      const newRunner: RunnerRecord = {
+        ...runner,
+        id: `runner_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        lastUsed: new Date()
+      };
+      this.runners.push(newRunner);
+      this.saveRunners();
+      console.log(`[RunnerDatabase] Added new runner: ${newRunner.name.first} ${newRunner.name.last}`);
+      return newRunner;
+    }
+  }
+
+  /**
+   * Get all runners (for export/management)
+   */
+  getAllRunners(): RunnerRecord[] {
+    return [...this.runners].sort((a, b) => 
+      `${a.name.first} ${a.name.last}`.localeCompare(`${b.name.first} ${b.name.last}`)
+    );
+  }
+
+  /**
+   * Import runners from CSV or JSON
+   */
+  importRunners(data: any[]): { imported: number, updated: number, errors: string[] } {
+    let imported = 0;
+    let updated = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < data.length; i++) {
+      const item = data[i];
+      try {
+        // Handle both CSV (flat) and JSON (nested) formats
+        const runner = {
+          name: {
+            first: item.firstName || item['First Name'] || item.name?.first || '',
+            last: item.lastName || item['Last Name'] || item.name?.last || ''
+          },
+          club: item.club || item.Club || item['Club Name'] || '',
+          birthYear: item.birthYear || item['Birth Year'] || item.YB ? 
+            parseInt(item.birthYear || item['Birth Year'] || item.YB) : undefined,
+          sex: item.sex || item.Sex || item.S as 'M' | 'F' | undefined,
+          cardNumber: item.cardNumber || item['Card Number'] || item.Card ? 
+            parseInt(item.cardNumber || item['Card Number'] || item.Card) : undefined,
+          nationality: item.nationality || item.Nationality || item.Nat,
+          phone: item.phone || item.Phone || item['Phone Number'] || '',
+          email: item.email || item.Email || item['Email Address'] || ''
+        };
+
+        if (!runner.name.first && !runner.name.last) {
+          errors.push(`Row ${i + 1}: Missing name`);
+          continue;
+        }
+
+        const existingCount = this.runners.length;
+        this.addRunner(runner);
+        
+        if (this.runners.length > existingCount) {
+          imported++;
+        } else {
+          updated++;
+        }
+      } catch (error) {
+        errors.push(`Row ${i + 1}: ${error}`);
+      }
+    }
+
+    return { imported, updated, errors };
+  }
+
+  /**
+   * Export runners to JSON format
+   */
+  exportRunners(): string {
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      version: '1.0',
+      totalRunners: this.runners.length,
+      runners: this.runners
+    };
+    
+    return JSON.stringify(exportData, null, 2);
+  }
+
+  /**
+   * Clear all runners (with confirmation)
+   */
+  clearAllRunners(): void {
+    this.runners = [];
+    this.saveRunners();
+    console.log('[RunnerDatabase] Cleared all runners');
+  }
+
+  /**
+   * Get database statistics
+   */
+  getStats(): { total: number, lastUsed?: Date } {
+    const lastUsed = this.runners.length > 0 
+      ? new Date(Math.max(...this.runners.map(r => r.lastUsed.getTime())))
+      : undefined;
+      
+    return {
+      total: this.runners.length,
+      lastUsed
+    };
+  }
+}
+
+export const runnerDatabaseService = new RunnerDatabaseService();
+export default RunnerDatabaseService;
