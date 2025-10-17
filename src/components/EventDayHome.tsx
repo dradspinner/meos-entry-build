@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Card, Row, Col, Button, Typography, Statistic, Table, Input, Tag, Space, Badge, message } from 'antd';
 import { CheckCircleOutlined, UserAddOutlined, DatabaseOutlined, ArrowLeftOutlined, UsbOutlined, EditOutlined, IdcardOutlined, LoginOutlined, ReloadOutlined } from '@ant-design/icons';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
-import EventDayCheckIn from './EventDayCheckIn';
 import SameDayRegistration from './SameDayRegistration';
 import EntryEditModal from './EntryEditModal';
 import { sportIdentService, type SICardReadEvent } from '../services/sportIdentService';
@@ -14,12 +13,9 @@ interface EventDayHomeProps {
 }
 
 const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
-  const [showCheckIn, setShowCheckIn] = useState(false);
   const [showSameDay, setShowSameDay] = useState(false);
   const [entries, setEntries] = useState<LocalEntry[]>(localEntryService.getAllEntries());
   const [filter, setFilter] = useState('');
-  const [showCheckIn, setShowCheckIn] = useState(false);
-  const [showSameDay, setShowSameDay] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [selected, setSelected] = useState<LocalEntry | null>(null);
   const [lastCard, setLastCard] = useState<string | null>(null);
