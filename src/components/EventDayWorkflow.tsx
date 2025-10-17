@@ -15,9 +15,10 @@ const { Title, Text, Paragraph } = Typography;
 
 interface EventDayWorkflowProps {
   onBack?: () => void;
+  onOpenDayDashboard?: () => void;
 }
 
-const EventDayWorkflow: React.FC<EventDayWorkflowProps> = ({ onBack }) => {
+const EventDayWorkflow: React.FC<EventDayWorkflowProps> = ({ onBack, onOpenDayDashboard }) => {
   const [currentStep, setCurrentStep] = useState(0);
 
   const steps = [
@@ -212,8 +213,8 @@ const EventDayWorkflow: React.FC<EventDayWorkflowProps> = ({ onBack }) => {
               <div style={{ marginTop: 16 }}>
                 <Space>
                   <Button onClick={() => setCurrentStep(3)}>Back</Button>
-                  <Button type="primary" onClick={() => setCurrentStep(0)}>
-                    Start New Event
+                  <Button type="primary" onClick={onOpenDayDashboard}>
+                    Open Event Day Dashboard
                   </Button>
                 </Space>
               </div>

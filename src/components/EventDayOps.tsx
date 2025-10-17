@@ -8,9 +8,10 @@ const { Title, Paragraph, Text } = Typography;
 
 interface EventDayOpsProps {
   onBack?: () => void;
+  onOpenDayDashboard?: () => void;
 }
 
-const EventDayOps: React.FC<EventDayOpsProps> = () => {
+const EventDayOps: React.FC<EventDayOpsProps> = ({ onBack, onOpenDayDashboard }) => {
   const steps = [
     { title: 'Import Entries', description: 'Load OE12 or Jotform CSV', icon: <UploadOutlined /> },
     { title: 'Review & Fix', description: 'Resolve data issues', icon: <SolutionOutlined /> },
@@ -39,7 +40,7 @@ const EventDayOps: React.FC<EventDayOpsProps> = () => {
         }
       />
 
-      <EventDayWorkflow />
+      <EventDayWorkflow onBack={onBack} onOpenDayDashboard={onOpenDayDashboard} />
     </div>
   );
 };

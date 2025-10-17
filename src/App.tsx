@@ -4,9 +4,12 @@ import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import EventBuilder from './components/EventBuilder';
 import EventDayOps from './components/EventDayOps';
+import EventDayHome from './components/EventDayHome';
+import EventDayCheckInPage from './components/EventDayCheckInPage';
+import SameDayRegistrationPage from './components/SameDayRegistrationPage';
 import './styles/professional.css';
 
-type CurrentView = 'dashboard' | 'eventBuilder' | 'eventDayOps';
+type CurrentView = 'dashboard' | 'eventBuilder' | 'eventDayOps' | 'eventDayDashboard' | 'eventDayCheckIn' | 'sameDayReg';
 
 function App() {
   const [currentView, setCurrentView] = useState<CurrentView>('dashboard');
@@ -26,7 +29,26 @@ function App() {
         );
       case 'eventDayOps':
         return (
-          <EventDayOps />
+          <EventDayOps 
+            onBack={() => setCurrentView('dashboard')} 
+            onOpenDayDashboard={() => setCurrentView('eventDayDashboard')} 
+          />
+        );
+      case 'eventDayDashboard':
+        return (
+          <EventDayHome 
+            onBack={() => setCurrentView('eventDayOps')}
+            onOpenCheckIn={() => setCurrentView('eventDayCheckIn')}
+            onOpenSameDay={() => setCurrentView('sameDayReg')}
+          />
+        );
+      case 'eventDayCheckIn':
+        return (
+          <EventDayCheckInPage onBack={() => setCurrentView('eventDayDashboard')} />
+        );
+      case 'sameDayReg':
+        return (
+          <SameDayRegistrationPage onBack={() => setCurrentView('eventDayDashboard')} />
         );
       default:
         return null;
