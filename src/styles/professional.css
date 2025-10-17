@@ -1,0 +1,193 @@
+/* Professional styling enhancements */
+
+/* Global improvements */
+.ant-layout-content {
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%) !important;
+  min-height: calc(100vh - 80px);
+}
+
+/* Card enhancements */
+.ant-card {
+  border-radius: 12px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  border: none !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.ant-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+  transform: translateY(-2px);
+}
+
+/* Button improvements */
+.ant-btn {
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.ant-btn-primary {
+  background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%) !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.3) !important;
+}
+
+.ant-btn-primary:hover {
+  background: linear-gradient(135deg, #40a9ff 0%, #1890ff 100%) !important;
+  box-shadow: 0 4px 16px rgba(24, 144, 255, 0.4) !important;
+  transform: translateY(-1px);
+}
+
+.ant-btn-danger {
+  background: linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%) !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(255, 77, 79, 0.3) !important;
+}
+
+.ant-btn-danger:hover {
+  background: linear-gradient(135deg, #ff7875 0%, #ff4d4f 100%) !important;
+  box-shadow: 0 4px 16px rgba(255, 77, 79, 0.4) !important;
+  transform: translateY(-1px);
+}
+
+/* Steps component */
+.ant-steps .ant-steps-item-process .ant-steps-item-icon {
+  background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%) !important;
+}
+
+.ant-steps .ant-steps-item-finish .ant-steps-item-icon {
+  background: linear-gradient(135deg, #52c41a 0%, #389e0d 100%) !important;
+}
+
+/* Form improvements */
+.ant-form-item-label > label {
+  font-weight: 600 !important;
+  color: #262626 !important;
+}
+
+.ant-input, .ant-select-selector {
+  border-radius: 8px !important;
+  border: 2px solid #e8e8e8 !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.ant-input:focus, .ant-select-focused .ant-select-selector {
+  border-color: #1890ff !important;
+  box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.1) !important;
+}
+
+/* Upload component */
+.ant-upload.ant-upload-drag {
+  border-radius: 12px !important;
+  border: 2px dashed #d9d9d9 !important;
+  background: rgba(255, 255, 255, 0.8) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.ant-upload.ant-upload-drag:hover {
+  border-color: #1890ff !important;
+  background: rgba(24, 144, 255, 0.02) !important;
+}
+
+/* Statistics */
+.ant-statistic .ant-statistic-content {
+  font-weight: 600 !important;
+}
+
+.ant-statistic .ant-statistic-content-value {
+  background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text;
+}
+
+/* Descriptions */
+.ant-descriptions-bordered .ant-descriptions-item-label {
+  background: rgba(24, 144, 255, 0.04) !important;
+  font-weight: 600 !important;
+}
+
+/* Alert improvements */
+.ant-alert {
+  border-radius: 10px !important;
+  border: none !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+}
+
+.ant-alert-info {
+  background: linear-gradient(135deg, rgba(24, 144, 255, 0.1) 0%, rgba(9, 109, 217, 0.05) 100%) !important;
+  border-left: 4px solid #1890ff !important;
+}
+
+.ant-alert-success {
+  background: linear-gradient(135deg, rgba(82, 196, 26, 0.1) 0%, rgba(56, 158, 13, 0.05) 100%) !important;
+  border-left: 4px solid #52c41a !important;
+}
+
+/* Typography improvements */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600 !important;
+  color: #262626 !important;
+}
+
+.ant-typography h1, .ant-typography h2, .ant-typography h3 {
+  background: linear-gradient(135deg, #262626 0%, #595959 100%) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  background-clip: text;
+}
+
+/* Professional header styling */
+.ant-layout-header {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Dashboard card covers */
+.dashboard-card-cover {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+}
+
+.dashboard-card-cover.event-day {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important;
+}
+
+/* Responsive improvements */
+@media (max-width: 768px) {
+  .ant-card {
+    margin-bottom: 16px !important;
+  }
+  
+  .ant-layout-content {
+    padding: 16px !important;
+  }
+}
+
+/* Loading states */
+.ant-spin-container {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Custom animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Professional color scheme */
+:root {
+  --primary-gradient: linear-gradient(135deg, #1890ff 0%, #096dd9 100%);
+  --success-gradient: linear-gradient(135deg, #52c41a 0%, #389e0d 100%);
+  --danger-gradient: linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%);
+  --warning-gradient: linear-gradient(135deg, #faad14 0%, #d48806 100%);
+  --background-gradient: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+}

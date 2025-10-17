@@ -1,0 +1,128 @@
+import { ConfigProvider, App as AntdApp, Layout, Menu, theme } from 'antd';
+import { useState } from 'react';
+import { BuildOutlined, DashboardOutlined, DatabaseOutlined } from '@ant-design/icons';
+import EventBuilderModule from './modules/event-builder/EventBuilderModule';
+import SameDayOperationsModule from './modules/same-day-operations/SameDayOperationsModule';
+import RunnerDatabaseModule from './modules/runner-database/RunnerDatabaseModule';
+import './App.css';
+
+const { Header, Content, Sider } = Layout;
+
+type ModuleKey = 'event-builder' | 'same-day-operations' | 'runner-database';
+
+function App() {
+  const [activeModule, setActiveModule] = useState<ModuleKey>('event-builder');
+  const {
+    token: { colorBgContainer, borderRadiusLG },
+  } = theme.useToken();
+
+  const menuItems = [
+    {
+      key: 'event-builder',
+      icon: <BuildOutlined />,
+      label: 'Event Builder',
+    },
+    {
+      key: 'same-day-operations', 
+      icon: <DashboardOutlined />,
+      label: 'Event Day Operations',
+    },
+    {
+      key: 'runner-database',
+      icon: <DatabaseOutlined />,
+      label: 'Runner Database',
+    },
+  ];
+
+  const renderActiveModule = () => {
+    switch (activeModule) {
+      case 'event-builder':
+        return <EventBuilderModule />;
+      case 'same-day-operations':
+        return <SameDayOperationsModule />;
+      case 'runner-database':
+        return <RunnerDatabaseModule />;
+      default:
+        return <SameDayOperationsModule />;
+    }
+  };
+
+  return (
+    <ConfigProvider
+      theme={{
+        token: {
+          colorPrimary: '#1890ff',
+          borderRadius: 6,
+        },
+      }}
+    >
+      <AntdApp>
+        <Layout style={{ minHeight: '100vh' }}>
+          <Sider 
+            width={280} 
+            style={{ 
+              background: colorBgContainer,
+              minWidth: '280px',
+              maxWidth: '280px',
+              flex: '0 0 280px'
+            }}
+          >
+            <div className="app-logo" style={{ 
+              height: 64, 
+              margin: 16, 
+              background: 'rgba(255, 255, 255, 0.3)',
+              borderRadius: borderRadiusLG,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '18px',
+              fontWeight: 'bold',
+              color: '#1890ff'
+            }}>
+              DVOA MeOS Tool
+            </div>
+            <Menu
+              mode="inline"
+              defaultSelectedKeys={[activeModule]}
+              selectedKeys={[activeModule]}
+              items={menuItems}
+              onSelect={({ key }) => setActiveModule(key as ModuleKey)}
+              style={{ borderRight: 0 }}
+            />
+          </Sider>
+          <Layout style={{ flex: '1', minWidth: '0' }}>
+            <Header style={{ padding: 0, background: colorBgContainer }}>
+              <div style={{ 
+                padding: '0 24px', 
+                fontSize: '20px', 
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                height: '100%'
+              }}>
+                {menuItems.find(item => item.key === activeModule)?.label}
+              </div>
+            </Header>
+            <Content style={{ margin: '24px', overflow: 'hidden' }}>
+              <div
+                style={{
+                  padding: '24px',
+                  minHeight: '360px',
+                  background: colorBgContainer,
+                  borderRadius: borderRadiusLG,
+                  width: '100%',
+                  maxWidth: 'none',
+                  overflow: 'auto'
+                }}
+              >
+                {renderActiveModule()}
+              </div>
+            </Content>
+          </Layout>
+        </Layout>
+      </AntdApp>
+    </ConfigProvider>
+  );
+}
+
+export default App;

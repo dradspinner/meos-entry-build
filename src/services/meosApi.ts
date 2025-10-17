@@ -30,7 +30,7 @@ export class MeosApiClient {
   constructor(config: Partial<MeosApiConfig> = {}) {
     // Use proxy in development to bypass CORS, direct connection in production
     const defaultBaseUrl = import.meta.env.DEV 
-      ? '/api/meos' 
+      ? '/meos' 
       : 'http://localhost:2009/meos';
     
     this.config = {

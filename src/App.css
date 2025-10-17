@@ -30,3 +30,47 @@ body {
 .ant-btn {
   border-radius: 6px;
 }
+
+/* Layout fixes to prevent text wrapping */
+.ant-layout {
+  min-width: 0;
+}
+
+.ant-layout-content {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.ant-card {
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.ant-form-item-label > label {
+  white-space: nowrap;
+}
+
+.ant-input, .ant-select {
+  min-width: 0;
+}
+
+/* Fix any flex container issues */
+.ant-row {
+  min-width: 0;
+}
+
+.ant-col {
+  min-width: 0;
+}
+
+/* Ensure proper sidebar width */
+.ant-layout-sider {
+  flex: 0 0 auto !important;
+}
+
+/* Fix menu items */
+.ant-menu-item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

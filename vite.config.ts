@@ -7,10 +7,9 @@ export default defineConfig({
   server: {
     proxy: {
       // Proxy MeOS API requests to bypass CORS
-      '/api/meos': {
+      '/meos': {
         target: 'http://localhost:2009',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/meos/, '/meos'),
         configure: (proxy, options) => {
           proxy.on('error', (err, req, res) => {
             console.log('Proxy error:', err);
