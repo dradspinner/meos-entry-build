@@ -1,17 +1,19 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, Row, Col, Button, Typography, Statistic } from 'antd';
 import { CheckCircleOutlined, UserAddOutlined, DatabaseOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { localEntryService } from '../services/localEntryService';
+import EventDayCheckIn from './EventDayCheckIn';
+import SameDayRegistration from './SameDayRegistration';
 
 const { Title, Paragraph, Text } = Typography;
 
 interface EventDayHomeProps {
   onBack?: () => void;
-  onOpenCheckIn: () => void;
-  onOpenSameDay: () => void;
 }
 
-const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onOpenCheckIn, onOpenSameDay }) => {
+const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
+  const [showCheckIn, setShowCheckIn] = useState(false);
+  const [showSameDay, setShowSameDay] = useState(false);
   const entries = localEntryService.getAllEntries();
   const totalEntries = entries.length;
   const checkedIn = entries.filter(e => e.status === 'checked-in').length;
@@ -62,7 +64,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onOpenCheckIn, onOp
             <Paragraph>
               Use an SI reader to check in runners with their own e-punch, or lookup by name for rentals.
             </Paragraph>
-            <Button type="primary" size="large" block onClick={onOpenCheckIn}>
+            <Button type="primary" size="large" block onClick={() => setShowCheckIn(true)}>
               Open Check-In
             </Button>
           </Card>
@@ -80,7 +82,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onOpenCheckIn, onOp
             <Paragraph>
               Register new runners, assign courses and rental e-punches, and add them to the local database.
             </Paragraph>
-            <Button type="primary" size="large" block onClick={onOpenSameDay}>
+            <Button type="primary" size="large" block onClick={() => setShowSameDay(true)}>
               Open Registration
             </Button>
           </Card>
@@ -95,6 +97,18 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onOpenCheckIn, onOp
           Entries are stored locally and synced to MeOS at check-in. Use this dashboard throughout the event day.
         </Paragraph>
       </Card>
+
+      {/* Check-In Modal */}
+      <EventDayCheckIn 
+        visible={showCheckIn} 
+        onClose={() => setShowCheckIn(false)}
+      />
+
+      {/* Same-Day Registration Modal */}
+      <SameDayRegistration 
+        visible={showSameDay} 
+        onClose={() => setShowSameDay(false)}
+      />
     </div>
   );
 };
