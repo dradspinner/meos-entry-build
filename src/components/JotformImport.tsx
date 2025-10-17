@@ -290,12 +290,7 @@ const JotformImport: React.FC = () => {
 
   // Helper function to check if entry has capitalization issues
   const hasCapitalizationIssues = (entry: JotformEntry): boolean => {
-    const nat = parseInt(entry.nat) || 0;
-    
-    // Ignore groups (Nat >= 2)
-    if (nat >= 2) return false;
-    
-    // Check first name and surname for individuals
+    // Always check capitalization for OE12/Jotform entries; group detection varies by format
     return !isProperlyCapitalized(entry.firstName) || !isProperlyCapitalized(entry.surname);
   };
 
@@ -454,7 +449,7 @@ const JotformImport: React.FC = () => {
       
       // Map OE12 fields to our internal format
       const chipValue = row['Chipno1'] || row['Chipno2'] || row['Chipno3'] || row['Chipno4'] || row['Chipno5'] || row['Chipno6'] || '';
-      const clubValue = row['City'] || 'DVOA'; // Club name is in City field for OE12
+      const clubValue = row['Cl.name'] || row['City'] || 'DVOA'; // Prefer club name, fallback to City for OE12
       
       const entry: JotformEntry = {
         stno: row['Stno'] || '',
@@ -759,14 +754,7 @@ const JotformImport: React.FC = () => {
       title: 'Nat',
       key: 'nat',
       render: (record: JotformEntry) => {
-        const nat = parseInt(record.nat) || 0;
-        if (nat >= 2) {
-          return (
-            <span style={{ color: '#1890ff' }}>
-              👥 {record.nat}
-            </span>
-          );
-        }
+        // Display nationality or code as-is; do not infer group size from this field
         return <span>{record.nat}</span>;
       },
       width: 60,
@@ -798,14 +786,11 @@ const JotformImport: React.FC = () => {
       render: (record: JotformEntry) => {
         const rentedValue = parseFloat(record.rented) || 0;
         const cardNumber = parseInt(record.chip) || 0;
-        const isGroup = parseInt(record.nat) >= 2;
         
         if (rentedValue > 0) {
           return <span style={{ color: '#faad14' }}>🏷️ Rented</span>;
         } else if (cardNumber > 0) {
           return <span style={{ color: '#52c41a' }}>✓ Own ({cardNumber})</span>;
-        } else if (isGroup) {
-          return <span style={{ color: '#1890ff' }}>👥 Group (assign at check-in)</span>;
         } else {
           return <span style={{ color: '#666' }}>🎟️ No card (assign at check-in)</span>;
         }

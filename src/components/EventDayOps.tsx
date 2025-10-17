@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, Typography, Steps, Alert } from 'antd';
 import { UploadOutlined, CheckCircleOutlined, SolutionOutlined, CreditCardOutlined } from '@ant-design/icons';
 import JotformImport from './JotformImport';
+import EventDayWorkflow from './EventDayWorkflow';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -38,9 +39,7 @@ const EventDayOps: React.FC<EventDayOpsProps> = () => {
         }
       />
 
-      <Card title="Import Entries (OE12 / Jotform CSV)">
-        <JotformImport />
-      </Card>
+      <EventDayWorkflow />
     </div>
   );
 };
