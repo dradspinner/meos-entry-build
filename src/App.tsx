@@ -3,6 +3,7 @@ import { Layout, ConfigProvider } from 'antd';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import EventBuilder from './components/EventBuilder';
+import EventDayOps from './components/EventDayOps';
 import './styles/professional.css';
 
 type CurrentView = 'dashboard' | 'eventBuilder' | 'eventDayOps';
@@ -24,13 +25,8 @@ function App() {
           <EventBuilder onBack={() => setCurrentView('dashboard')} />
         );
       case 'eventDayOps':
-        // Placeholder for future Event Day Operations component
         return (
-          <div style={{ padding: '24px', textAlign: 'center' }}>
-            <h2>Event Day Operations</h2>
-            <p>Coming soon in Phase 2</p>
-            <button onClick={() => setCurrentView('dashboard')}>Back to Dashboard</button>
-          </div>
+          <EventDayOps />
         );
       default:
         return null;

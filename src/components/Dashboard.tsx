@@ -138,10 +138,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                 size="large" 
                 block
                 onClick={onNavigateToEventDayOps}
-                disabled
                 style={{ height: '48px', fontSize: '16px' }}
               >
-                Coming Soon
+                Launch Event Day Operations
               </Button>
               
               <Paragraph style={{ 
