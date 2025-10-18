@@ -52,6 +52,8 @@ class LocalEntryService {
   private readonly DIR_HANDLE_KEY = 'meos_working_directory';
   private readonly FILE_STORAGE_AVAILABLE = typeof window !== 'undefined' && 'showSaveFilePicker' in window;
   private workingDirectoryHandle: any = null;
+  // When we can't get a directory handle, remember the file handle to open pickers in the same folder
+  private workingFileHandle: any = null;
 
   /**
    * Get all local entries
@@ -477,6 +479,68 @@ class LocalEntryService {
   }
 
   /**
+   * Directly set working directory handle (when already obtained)
+   */
+  async setWorkingDirectoryHandle(dirHandle: any): Promise<boolean> {
+    try {
+      if (!dirHandle) return false;
+      // Request read/write permission
+      if (dirHandle.requestPermission) {
+        const perm = await dirHandle.requestPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') {
+          console.warn('[LocalStorage] Directory permission not granted');
+          return false;
+        }
+      }
+      this.workingDirectoryHandle = dirHandle;
+      console.log(`[LocalStorage] Set working directory: ${dirHandle.name}`);
+      return true;
+    } catch (error) {
+      console.warn('Failed to set working directory handle:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Attempt to set working directory based on a selected file handle (CSV location)
+   * - If the browser supports fileHandle.getParent(), use it to get the directory handle
+   * - Otherwise, remember the file handle to open future pickers in the same folder
+   */
+  async setWorkingDirectoryFromFileHandle(fileHandle: any): Promise<boolean> {
+    try {
+      if (!fileHandle) return false;
+
+      // Progressive enhancement: some browsers may expose getParent()
+      const anyHandle = fileHandle as any;
+      if (anyHandle && typeof anyHandle.getParent === 'function') {
+        try {
+          const dirHandle = await anyHandle.getParent();
+          if (dirHandle) {
+            return await this.setWorkingDirectoryHandle(dirHandle);
+          }
+        } catch (parentErr) {
+          console.warn('[LocalStorage] getParent() not available/failed:', parentErr);
+        }
+      }
+
+      // Fallback: remember the file handle so save pickers can start in the same folder
+      this.workingFileHandle = fileHandle;
+      console.log('[LocalStorage] Remembering CSV file handle to start future saves in the same folder');
+
+      // Also set a reasonable directory preference name based on the file name
+      const baseName = (fileHandle.name || '').replace(/\.[^/.]+$/, '');
+      if (baseName) {
+        this.setSaveDirectoryPreference(`${baseName} - MeOS Event`);
+      }
+
+      return false;
+    } catch (error) {
+      console.warn('Failed to set working directory from file handle:', error);
+      return false;
+    }
+  }
+
+  /**
    * Fallback for browsers without File System Access API (like Firefox)
    */
   private setWorkingDirectoryFallback(): boolean {
@@ -673,6 +737,9 @@ class LocalEntryService {
     const processedEntries: LocalEntry[] = [];
     let newCount = 0;
     let updatedCount = 0;
+
+    // Temporarily disable per-entry autosave during bulk import
+    this.isImporting = true;
     
     // Set directory preference based on CSV filename
     if (fileName) {
@@ -769,6 +836,10 @@ class LocalEntryService {
     }
     
     console.log(`Processed ${processedEntries.length} entries from OE12: ${newCount} new, ${updatedCount} updated`);
+
+    // Re-enable autosave now that bulk import is complete
+    this.isImporting = false;
+
     return { entries: processedEntries, newCount, updatedCount };
   }
 
@@ -779,6 +850,9 @@ class LocalEntryService {
     const processedEntries: LocalEntry[] = [];
     let newCount = 0;
     let updatedCount = 0;
+
+    // Temporarily disable per-entry autosave during bulk import
+    this.isImporting = true;
     
     // Set directory preference based on CSV filename
     if (fileName) {
@@ -870,6 +944,10 @@ class LocalEntryService {
     }
     
     console.log(`Processed ${processedEntries.length} entries from Jotform: ${newCount} new, ${updatedCount} updated`);
+
+    // Re-enable autosave now that bulk import is complete
+    this.isImporting = false;
+
     return { entries: processedEntries, newCount, updatedCount };
   }
 
@@ -1122,7 +1200,8 @@ class LocalEntryService {
               },
             },
           ],
-          startIn: 'documents'
+          // If we remember the CSV file handle, start the save picker in that folder
+          startIn: (this as any).workingFileHandle || 'documents'
         };
         
         const fileHandle = await (window as any).showSaveFilePicker(options);

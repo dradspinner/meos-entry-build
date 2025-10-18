@@ -203,7 +203,7 @@ const JotformImport: React.FC = () => {
           message.success(`Loaded ${validEntries.length} entries from CSV`);
           
           // Prompt to set working directory if not already set
-          const currentWorkingDir = localEntryService.getWorkingDirectoryName();
+          const currentWorkingDir = localEntryService.getWorkingDirectoryName() || localEntryService.getWorkingDirectoryPath();
           if (!currentWorkingDir) {
             setTimeout(() => {
               message.info({
@@ -212,6 +212,12 @@ const JotformImport: React.FC = () => {
                 key: 'working-dir-prompt'
               });
             }, 1000);
+          }
+
+          // Auto-save for OE12 if directory is set
+          if (detectedFormat === 'OE12' && currentWorkingDir) {
+            // Use raw data for OE12 import to preserve headers
+            handleSaveLocally({ detectedFormat: 'OE12', data: results.data, fileNameOverride: file.name });
           }
         } catch (error) {
           message.error('Failed to parse CSV data. Please check the format.');
@@ -561,14 +567,17 @@ const JotformImport: React.FC = () => {
   };
 
   // Save all entries locally for check-in workflow
-  const handleSaveLocally = async () => {
-    if (csvData.length === 0) {
+  const handleSaveLocally = async (opts?: { detectedFormat?: 'OE12' | 'Jotform'; data?: any[]; fileNameOverride?: string }) => {
+    const detectedFormat = opts?.detectedFormat || csvFormat;
+    const dataSource = opts?.data || (detectedFormat === 'OE12' ? rawCsvData : csvData);
+
+    if (!dataSource || dataSource.length === 0) {
       message.warning('No entries to save');
       return;
     }
 
     setImportStatus({
-      total: csvData.length,
+      total: dataSource.length,
       processed: 0,
       successful: 0,
       errors: 0,
@@ -579,24 +588,53 @@ const JotformImport: React.FC = () => {
 
     try {
       // Import all entries to local storage, passing filename to set directory preference
-      const fileName = selectedFile?.name;
+      const fileName = opts?.fileNameOverride || selectedFile?.name;
       
-      // For OE12 format, pass raw CSV data to avoid field mapping issues
-      // For Jotform format, use the processed csvData
-      const dataToImport = csvFormat === 'OE12' ? rawCsvData : csvData;
-      console.log(`[Import] Using ${csvFormat} format, importing ${dataToImport.length} entries`);
+      console.log(`[Import] Using ${detectedFormat} format, importing ${dataSource.length} entries`);
       
-      const importResult = await localEntryService.importFromCsv(dataToImport, fileName);
+      const importResult = await localEntryService.importFromCsv(dataSource, fileName);
       
       // Learn runners from imported entries for future auto-completion
       const runnerLearningResult = localRunnerService.bulkLearnFromEntries(importResult.entries);
       console.log(`[CSV Import] Learned ${runnerLearningResult.imported} new runners and updated ${runnerLearningResult.updated} existing runners`);
       
-      // Create success results for all entries
-      for (let i = 0; i < csvData.length; i++) {
-        const entry = csvData[i];
+      // Create success results for all entries (normalize to JotformEntry shape for display)
+      for (let i = 0; i < dataSource.length; i++) {
+        const raw = dataSource[i] as any;
+        let displayEntry: JotformEntry | null = null;
+
+        if (detectedFormat === 'OE12') {
+          // Parse OE12 row into JotformEntry-like shape for consistent rendering
+          displayEntry = parseOE12Row(raw, i);
+          if (!displayEntry) {
+            displayEntry = {
+              stno: raw['Stno'] || '',
+              chip: raw['Chipno1'] || raw['Chipno2'] || '',
+              databaseId: raw['Database Id'] || '',
+              surname: raw['Surname'] || raw['Family name'] || raw['Last name'] || '',
+              firstName: raw['First name'] || '',
+              yb: raw['YB'] || raw['Birth year'] || raw['Year'] || '',
+              s: raw['S'] || raw['Sex'] || raw['Gender'] || '',
+              clubNo: raw['Club no.'] || '',
+              clName: raw['Cl.name'] || raw['City'] || '',
+              city: raw['City'] || '',
+              nat: raw['Nat'] || '',
+              clNo: raw['Cl. no.'] || '',
+              short: raw['Short'] || '',
+              long: raw['Long'] || '',
+              phone: raw['Phone'] || raw['Mobile'] || '',
+              email: raw['EMail'] || '',
+              rented: (raw['Rented'] === 'X' || raw['Rented'] === '1') ? '1' : '0',
+              startFee: raw['Start fee'] || '0',
+              paid: raw['Paid'] || '0',
+            } as JotformEntry;
+          }
+        } else {
+          displayEntry = raw as JotformEntry;
+        }
+
         const result: ImportResult = {
-          entry,
+          entry: displayEntry!,
           status: 'success',
         };
         
@@ -910,6 +948,41 @@ const JotformImport: React.FC = () => {
           beforeUpload={handleFileUpload}
           showUploadList={false}
           disabled={importStatus.isImporting}
+          onDrop={async (e) => {
+            try {
+              const dt = e.dataTransfer;
+              if (!dt) return;
+              const item = dt.items && dt.items.length > 0 ? dt.items[0] : null;
+              if (!item) return;
+              // Try modern handle first
+              if ('getAsFileSystemHandle' in item) {
+                // @ts-ignore - experimental API
+                const handle = await (item as any).getAsFileSystemHandle();
+                if (handle && handle.kind === 'file') {
+                  // Try to set working directory from the dropped file's location
+                  await localEntryService.setWorkingDirectoryFromFileHandle(handle);
+                  const dirName = localEntryService.getWorkingDirectoryName();
+                  if (dirName) setWorkingDirectory(dirName);
+                }
+              } else if ('webkitGetAsEntry' in item) {
+                // @ts-ignore - legacy API in Chromium
+                const entry = (item as any).webkitGetAsEntry && (item as any).webkitGetAsEntry();
+                if (entry && entry.isFile && entry.getParent) {
+                  entry.getParent(async (parent: any) => {
+                    if (parent) {
+                      // We can't convert legacy entry to a handle; just set a name hint
+                      try {
+                        await localEntryService.setSaveDirectoryPreference(parent.name || 'MeOS Event Entries');
+                        setWorkingDirectory(parent.name || null);
+                      } catch {}
+                    }
+                  });
+                }
+              }
+            } catch (err) {
+              console.warn('Failed to infer directory from dropped file:', err);
+            }
+          }}
         >
           <p className="ant-upload-drag-icon">
             <InboxOutlined />
@@ -921,6 +994,45 @@ const JotformImport: React.FC = () => {
             Supports CSV files from Jotform and EventReg (OE12 format)
           </p>
         </Dragger>
+        
+        {/* Optional: Use native file picker to auto-set directory (Chrome/Edge) */}
+        {'showOpenFilePicker' in window && (
+          <div style={{ marginTop: 12 }}>
+            <Space>
+              <Button 
+                onClick={async () => {
+                  try {
+                    // @ts-ignore - File System Access API
+                    const [fileHandle] = await (window as any).showOpenFilePicker({
+                      multiple: false,
+                      types: [{
+                        description: 'CSV files',
+                        accept: { 'text/csv': ['.csv'] }
+                      }]
+                    });
+                    if (fileHandle) {
+                      const file = await fileHandle.getFile();
+                      await localEntryService.setWorkingDirectoryFromFileHandle(fileHandle);
+                      const dirName = localEntryService.getWorkingDirectoryName();
+                      if (dirName) setWorkingDirectory(dirName);
+                      // Reuse existing upload flow to parse
+                      handleFileUpload(file);
+                    }
+                  } catch (err) {
+                    // User cancelled or API not available
+                  }
+                }}
+              >
+                Open CSV (native picker)
+              </Button>
+              {workingDirectory && (
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                  Directory: <Text code>{workingDirectory}</Text>
+                </Text>
+              )}
+            </Space>
+          </div>
+        )}
         
         {selectedFile && (
           <div>
@@ -1063,6 +1175,41 @@ const JotformImport: React.FC = () => {
         />
       )}
 
+      {/* Working Directory (before entries) */}
+      <Card 
+        title="Working Directory" 
+        size="small" 
+        style={{ marginBottom: '12px' }}
+        type={workingDirectory ? undefined : 'inner'}
+        extra={
+          <Button 
+            type={workingDirectory ? undefined : 'primary'}
+            size="small" 
+            onClick={handleSetWorkingDirectory}
+            icon={<span>📁</span>}
+          >
+            {workingDirectory ? 'Change Directory' : 'Set Directory'}
+          </Button>
+        }
+      >
+        <div style={{ padding: '6px 0' }}>
+          {workingDirectory ? (
+            <div>
+              <Text type="success">✓ Working directory set: <Text code>{workingDirectory}</Text></Text>
+              {localEntryService.getWorkingDirectoryPath() && (
+                <div style={{ marginTop: '4px' }}>
+                  <Text type="secondary" style={{ fontSize: '12px' }}>Full path: <Text code>{localEntryService.getWorkingDirectoryPath()}</Text></Text>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>
+              <Text type="warning">⚠️ Set your working directory to save backup files alongside your CSV.</Text>
+            </div>
+          )}
+        </div>
+      </Card>
+
       {/* CSV Preview Section */}
       {csvData.length > 0 && (
         <Card 
@@ -1080,7 +1227,7 @@ const JotformImport: React.FC = () => {
               <Button 
                 type="primary" 
                 icon={<UploadOutlined />}
-                onClick={handleSaveLocally}
+                onClick={() => handleSaveLocally()}
                 loading={importStatus.isImporting}
                 disabled={csvData.length === 0}
                 title="Save entries locally for check-in workflow + create backup file"
@@ -1089,7 +1236,7 @@ const JotformImport: React.FC = () => {
               </Button>
             </Space>
           }
-          style={{ marginBottom: '24px' }}
+          style={{ marginBottom: '12px' }}
         >
           <Table
             dataSource={csvData}
@@ -1104,6 +1251,20 @@ const JotformImport: React.FC = () => {
             scroll={{ x: 1000 }}
           />
         </Card>
+      )}
+
+      {/* Change Directory (after entries) */}
+      {csvData.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+          <Space>
+            <Button size="small" onClick={handleSetWorkingDirectory} icon={<span>📁</span>}>
+              Change Directory
+            </Button>
+            {workingDirectory && (
+              <Text type="secondary" style={{ fontSize: '12px' }}>Current: <Text code>{workingDirectory}</Text></Text>
+            )}
+          </Space>
+        </div>
       )}
 
       {/* Import Progress Section */}
@@ -1122,45 +1283,6 @@ const JotformImport: React.FC = () => {
           </div>
         </Card>
       )}
-
-      {/* Working Directory Section */}
-      <Card 
-        title="Working Directory" 
-        size="small" 
-        style={{ marginBottom: '16px' }}
-        type={workingDirectory ? undefined : 'inner'}
-        extra={
-          <Button 
-            type={workingDirectory ? undefined : 'primary'}
-            size="small" 
-            onClick={handleSetWorkingDirectory}
-            icon={<span>📁</span>}
-          >
-            {workingDirectory ? 'Change Directory' : 'Set Directory'}
-          </Button>
-        }
-      >
-        <div style={{ padding: '8px 0' }}>
-          {workingDirectory ? (
-            <div>
-              <Text type="success">✓ Working directory set: <Text code>{workingDirectory}</Text></Text>
-              {localEntryService.getWorkingDirectoryPath() && (
-                <div style={{ marginTop: '4px' }}>
-                  <Text type="secondary" style={{ fontSize: '12px' }}>Full path: <Text code>{localEntryService.getWorkingDirectoryPath()}</Text></Text>
-                  <br />
-                  <Text type="secondary" style={{ fontSize: '12px' }}>Firefox: Files will download to Downloads, then move to this folder.</Text>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div>
-              <Text type="warning">⚠️ <strong>Important:</strong> Set your working directory to save backup files in the same folder as your CSV file.</Text>
-              <br />
-              <Text type="secondary" style={{ fontSize: '12px' }}>Without this, files will download to your default Downloads folder instead.</Text>
-            </div>
-          )}
-        </div>
-      </Card>
 
       {/* Import Results Section */}
       {importResults.length > 0 && (
