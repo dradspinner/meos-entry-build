@@ -109,14 +109,25 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
       const checkedIn = localEntryService.checkInEntry(updated.id, values.cardNumber);
       if (checkedIn) {
         try {
-          // Map class to MeOS class id
-          const classMap = await meosClassService.getClassId(checkedIn.className, checkedIn.classId);
+          // Ensure MeOS classes are loaded and map by class NAME, not fallback
+          const meosClasses = await meosClassService.getClasses(true);
+          const classNameToFind = meosClasses.find(c => c.id === values.classId)?.name || checkedIn.className;
+          const meosClass = meosClasses.find(c => 
+            c.name?.toLowerCase() === (classNameToFind||'').toLowerCase() ||
+            c.shortName?.toLowerCase() === (classNameToFind||'').toLowerCase()
+          );
+          if (!meosClass) {
+            message.error('Could not map class to MeOS. Click "Verify in MeOS" on the dashboard, then try again.');
+            onCheckedIn(checkedIn);
+            return;
+          }
+
           const natNum = parseInt((entry?.nationality as any) || '0', 10);
           const sexVal = (!natNum || natNum <= 1) ? values.sex : undefined;
           await meosApi.createEntry({
             name: `${values.firstName} ${values.lastName}`.trim(),
             club: values.club,
-            classId: classMap.id,
+            classId: meosClass.id,
             cardNumber: parseInt(values.cardNumber) || 0,
             phone: values.phone,
             birthYear: values.birthYear ? parseInt(values.birthYear) : undefined,
@@ -165,8 +176,6 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
               }]}
             >
               <Input />
-            </Form.Item>
-          </Col>
             </Form.Item>
           </Col>
           <Col span={12}>
