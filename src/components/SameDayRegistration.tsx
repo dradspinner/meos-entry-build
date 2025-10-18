@@ -161,6 +161,8 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
       }
 
       // Create a new local entry (pending -> checked-in)
+      const natNum = parseInt(values.nationality || '0', 10);
+      const normalizedSex = (!natNum || natNum <= 1) ? values.sex : undefined;
       const pendingEntry = localEntryService.addEntry({
         name: { first: values.firstName.trim(), last: values.lastName.trim() },
         club: values.club.trim(),
@@ -168,7 +170,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         classId: values.classId,
         cardNumber: values.cardNumber,
         birthYear: values.birthYear,
-        sex: values.sex,
+        sex: normalizedSex,
         phone: values.phone,
         nationality: values.nationality,
         isHiredCard: false,
@@ -264,6 +266,8 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
     try {
       const values = await form.validateFields();
       // Allow empty card number for save-only
+      const natNum = parseInt(values.nationality || '0', 10);
+      const normalizedSex = (!natNum || natNum <= 1) ? values.sex : undefined;
       const saved = localEntryService.addEntry({
         name: { first: values.firstName.trim(), last: values.lastName.trim() },
         club: values.club.trim(),
@@ -271,7 +275,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         classId: values.classId,
         cardNumber: values.cardNumber || '0',
         birthYear: values.birthYear,
-        sex: values.sex,
+        sex: normalizedSex,
         phone: values.phone,
         nationality: values.nationality,
         isHiredCard: false,

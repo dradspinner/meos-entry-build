@@ -128,7 +128,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
 
       <Table
         rowKey={(r: LocalEntry)=>r.id}
-        dataSource={entries.filter(e => e.status === 'pending').filter(e => {
+        dataSource={entries.filter(e => {
           const q = filter.trim().toLowerCase();
           if (!q) return true;
           return (
@@ -144,23 +144,28 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
           { title: 'Club', dataIndex: 'club', key: 'club' },
           { title: 'Class', dataIndex: 'className', key: 'className' },
           { title: 'Card', dataIndex: 'cardNumber', key: 'cardNumber', render: (v: string) => v && v !== '0' ? <Tag>#{v}</Tag> : <Tag color="warning">None</Tag> },
+          { title: 'Status', key: 'status', render: (_: any, r: LocalEntry) => r.status === 'checked-in' ? <Tag color="green">Checked In</Tag> : <Tag>Pending</Tag> },
           { title: 'Rental?', key: 'rental', render: (_: any, r: LocalEntry) => r.issues?.needsRentalCard ? <Tag color="red">Needs Rental</Tag> : null },
           { title: 'Actions', key: 'actions', render: (_: any, r: LocalEntry) => (
             <Space>
               <Button size="small" icon={<EditOutlined />} onClick={()=>{setSelected(r); setEditOpen(true);}}>Edit</Button>
-              <Button size="small" icon={<IdcardOutlined />} onClick={()=>{
-                if (lastCard) {
-                  const u = localEntryService.updateEntry(r.id, { cardNumber: lastCard, isHiredCard: true });
-                  if (u) { message.success(`Assigned card ${lastCard}`); refresh(); }
-                } else {
-                  message.info('Scan a card, then click Assign Last Card');
-                }
-              }}>Assign Last Card</Button>
-              <Button size="small" type="primary" icon={<LoginOutlined />} onClick={()=>{
-                const checked = localEntryService.checkInEntry(r.id, r.cardNumber && r.cardNumber !== '0' ? r.cardNumber : lastCard || undefined);
-                if (checked) { message.success('Checked in'); refresh(); }
-                else { message.error('Card number required'); }
-              }}>Check In</Button>
+              {r.status !== 'checked-in' && (
+                <>
+                  <Button size="small" icon={<IdcardOutlined />} onClick={()=>{
+                    if (lastCard) {
+                      const u = localEntryService.updateEntry(r.id, { cardNumber: lastCard, isHiredCard: true });
+                      if (u) { message.success(`Assigned card ${lastCard}`); refresh(); }
+                    } else {
+                      message.info('Scan a card, then click Assign Last Card');
+                    }
+                  }}>Assign Last Card</Button>
+                  <Button size="small" type="primary" icon={<LoginOutlined />} onClick={()=>{
+                    const checked = localEntryService.checkInEntry(r.id, r.cardNumber && r.cardNumber !== '0' ? r.cardNumber : lastCard || undefined);
+                    if (checked) { message.success('Checked in'); refresh(); }
+                    else { message.error('Card number required'); }
+                  }}>Check In</Button>
+                </>
+              )}
             </Space>
           )}
         ]}
