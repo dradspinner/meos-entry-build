@@ -27,13 +27,20 @@ function EventBuilder({ onBack }: EventBuilderProps) {
   ];
 
   const onFormFinish = (values: any) => {
+    const name = values.name;
+    const date = values.date?.format('YYYY-MM-DD') || '';
     setEventData(prev => ({ ...prev, 
-      name: values.name, 
-      date: values.date?.format('YYYY-MM-DD') || '', 
+      name,
+      date, 
       organizer: values.organizer || '',
       coursePlanner: values.coursePlanner || '',
       website: values.website || ''
     }));
+    // Save event meta for Event Day resume
+    try {
+      const { eventMetaService } = require('../services/eventMetaService');
+      eventMetaService.set({ name, date });
+    } catch {}
     setCurrentStep(1);
   };
 

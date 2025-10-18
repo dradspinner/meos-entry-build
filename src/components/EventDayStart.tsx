@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, Typography, Button, Row, Col, Statistic, Space, Alert, Modal } from 'antd';
 import { HistoryOutlined, ReloadOutlined } from '@ant-design/icons';
 import { localEntryService } from '../services/localEntryService';
+import { eventMetaService } from '../services/eventMetaService';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -16,6 +17,7 @@ const EventDayStart: React.FC<EventDayStartProps> = ({ onResume, onStartNew }) =
   const checkedIn = entries.filter(e => e.status === 'checked-in').length;
   const pending = total - checkedIn;
   const dirPref = localEntryService.getSaveDirectoryPreference();
+  const meta = eventMetaService.get();
 
   const confirmNew = () => {
     Modal.confirm({
@@ -53,13 +55,23 @@ const EventDayStart: React.FC<EventDayStartProps> = ({ onResume, onStartNew }) =
         </Col>
       </Row>
 
-      <Alert
-        style={{ marginTop: 16 }}
-        type="info"
-        showIcon
-        message="Working directory"
-        description={<Text type="secondary">{dirPref}</Text>}
-      />
+      {meta ? (
+        <Alert
+          style={{ marginTop: 16 }}
+          type="success"
+          showIcon
+          message={`Resuming: ${meta.name}`}
+          description={<Text type="secondary">Date: {meta.date || 'N/A'} • Dir: {dirPref}</Text>}
+        />
+      ) : (
+        <Alert
+          style={{ marginTop: 16 }}
+          type="info"
+          showIcon
+          message="Working directory"
+          description={<Text type="secondary">{dirPref}</Text>}
+        />
+      )}
 
       <Row gutter={[16,16]} style={{ marginTop: 24 }}>
         <Col xs={24} md={12}>
