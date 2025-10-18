@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, Typography, Steps, Alert } from 'antd';
 import { UploadOutlined, CheckCircleOutlined, SolutionOutlined, CreditCardOutlined } from '@ant-design/icons';
 import JotformImport from './JotformImport';
 import EventDayWorkflow from './EventDayWorkflow';
+import EventDayStart from './EventDayStart';
+import { localEntryService } from '../services/localEntryService';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -12,6 +14,7 @@ interface EventDayOpsProps {
 }
 
 const EventDayOps: React.FC<EventDayOpsProps> = ({ onBack, onOpenDayDashboard }) => {
+  const [hasExisting, setHasExisting] = useState(localEntryService.getAllEntries().length > 0);
   const steps = [
     { title: 'Import Entries', description: 'Load OE12 or Jotform CSV', icon: <UploadOutlined /> },
     { title: 'Review & Fix', description: 'Resolve data issues', icon: <SolutionOutlined /> },
@@ -40,7 +43,14 @@ const EventDayOps: React.FC<EventDayOpsProps> = ({ onBack, onOpenDayDashboard })
         }
       />
 
-      <EventDayWorkflow onBack={onBack} onOpenDayDashboard={onOpenDayDashboard} />
+      {hasExisting ? (
+        <EventDayStart 
+          onResume={() => onOpenDayDashboard && onOpenDayDashboard()} 
+          onStartNew={() => { setHasExisting(false); }}
+        />
+      ) : (
+        <EventDayWorkflow onBack={onBack} onOpenDayDashboard={onOpenDayDashboard} />
+      )}
     </div>
   );
 };
