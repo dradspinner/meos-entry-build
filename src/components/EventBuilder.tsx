@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button, Card, Steps, Alert, Space, Form, Input, DatePicker, message, Upload, Descriptions, Row, Col, Statistic } from 'antd';
 import { SettingOutlined, UploadOutlined, CheckCircleOutlined, FileOutlined, DownloadOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { eventMetaService } from '../services/eventMetaService';
 
 interface EventBuilderProps {
   onBack: () => void;
@@ -37,10 +38,7 @@ function EventBuilder({ onBack }: EventBuilderProps) {
       website: values.website || ''
     }));
     // Save event meta for Event Day resume
-    try {
-      const { eventMetaService } = require('../services/eventMetaService');
-      eventMetaService.set({ name, date });
-    } catch {}
+    eventMetaService.set({ name, date });
     setCurrentStep(1);
   };
 
@@ -347,7 +345,14 @@ function EventBuilder({ onBack }: EventBuilderProps) {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     
-    message.success('MeOS XML file downloaded successfully!');
+    // Confirm to user and return to Dashboard
+    const meta = eventMetaService.get();
+    message.success(
+      meta
+        ? `MeOS XML downloaded. Stored event meta: ${meta.name} — ${meta.date}. Returning to Dashboard...`
+        : 'MeOS XML downloaded. Returning to Dashboard...'
+    );
+    setTimeout(() => onBack(), 500);
   };
 
   return (
