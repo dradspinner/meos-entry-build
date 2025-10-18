@@ -94,11 +94,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
       )}
 
       <Title level={2} style={{ marginBottom: 8 }}>
-        Event Day Dashboard {meta && (
-          <Text type="secondary" style={{ marginLeft: 12 }}>
-            — {meta.name} • {meta.date || 'N/A'}
-          </Text>
-        )}
+        {`Event Day Dashboard - ${meta?.name || ''} || ${meta?.date || ''}`}
       </Title>
       <Text type="secondary">Check-in pre-registered runners or register new entries</Text>
 

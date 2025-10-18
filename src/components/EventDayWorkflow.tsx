@@ -10,6 +10,7 @@ import {
   ArrowLeftOutlined
 } from '@ant-design/icons';
 import JotformImport from './JotformImport';
+import { localEntryService } from '../services/localEntryService';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -213,7 +214,19 @@ const EventDayWorkflow: React.FC<EventDayWorkflowProps> = ({ onBack, onOpenDayDa
               <div style={{ marginTop: 16 }}>
                 <Space>
                   <Button onClick={() => setCurrentStep(3)}>Back</Button>
-                  <Button type="primary" onClick={onOpenDayDashboard}>
+                  <Button 
+                    type="primary" 
+                    onClick={() => {
+                      const hasEntries = localEntryService.getAllEntries().length > 0;
+                      if (!hasEntries) {
+                        alert('No entries found. Please import OE12/Jotform entries before opening the Event Day Dashboard.');
+                        setCurrentStep(0);
+                        return;
+                      }
+                      onOpenDayDashboard && onOpenDayDashboard();
+                    }}
+                    disabled={localEntryService.getAllEntries().length === 0}
+                  >
                     Open Event Day Dashboard
                   </Button>
                 </Space>
