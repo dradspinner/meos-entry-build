@@ -26,6 +26,7 @@ import { localRunnerService, type LocalRunner } from '../services/localRunnerSer
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
 import { meosClassService } from '../services/meosClassService';
 import { meosApi } from '../services/meosApi';
+import { sportIdentService, type SICardReadEvent } from '../services/sportIdentService';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -61,6 +62,8 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
   const [foundRunner, setFoundRunner] = useState<LocalRunner | null>(null);
   const [classes, setClasses] = useState<Array<{ id: string; name: string; fee: number }>>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [readerStatus, setReaderStatus] = useState(sportIdentService.getStatus());
+  const [lastCard, setLastCard] = useState<string | null>(null);
 
   // Load available classes
   useEffect(() => {
@@ -71,6 +74,23 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
       }
     }
   }, [visible, cardNumber]);
+
+  // Listen to SI card reader when modal is open
+  useEffect(() => {
+    if (!visible) return;
+    const cb = (ev: SICardReadEvent) => {
+      setReaderStatus(sportIdentService.getStatus());
+      if (ev.type === 'card_read' && ev.card) {
+        const c = ev.card.cardNumber.toString();
+        setLastCard(c);
+        form.setFieldsValue({ cardNumber: c });
+        message.success(`Card ${c} read`);
+      }
+    };
+    sportIdentService.addCallback(cb);
+    const interval = setInterval(() => setReaderStatus(sportIdentService.getStatus()), 2000);
+    return () => { sportIdentService.removeCallback(cb); clearInterval(interval); };
+  }, [visible]);
 
   const loadClasses = async () => {
     try {
@@ -133,13 +153,16 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
       const values = await form.validateFields();
       setSubmitting(true);
 
-      // Create a new local entry
-      const newEntry = {
-        id: `entry_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        name: {
-          first: values.firstName.trim(),
-          last: values.lastName.trim()
-        },
+      // Require card number to check in now
+      if (!values.cardNumber || values.cardNumber.trim() === '') {
+        message.error('Card number required to check in now. Use Save to add without checking in.');
+        setSubmitting(false);
+        return;
+      }
+
+      // Create a new local entry (pending -> checked-in)
+      const pendingEntry = localEntryService.addEntry({
+        name: { first: values.firstName.trim(), last: values.lastName.trim() },
         club: values.club.trim(),
         className: values.className,
         classId: values.classId,
@@ -148,21 +171,11 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         sex: values.sex,
         phone: values.phone,
         nationality: values.nationality,
-        status: 'checked-in' as const,
-        checkedInAt: new Date(),
-        submittedToMeos: false,
         isHiredCard: false,
-        rented: false,
-        issues: {
-          needsRentalCard: false,
-          needsCardButNoRental: false,
-          duplicateCard: false,
-          missingInfo: false
-        }
-      };
-
-      // Add the entry to local storage
-      const addedEntry = localEntryService.addOrUpdateEntry(newEntry);
+        fee: classes.find(c => c.id === values.classId)?.fee || 0,
+        importedFrom: 'manual'
+      });
+      const addedEntry = localEntryService.checkInEntry(pendingEntry.id, values.cardNumber);
 
       if (addedEntry) {
         // Update runner database for future lookups
@@ -247,6 +260,32 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
     return result.id;
   };
 
+  const handleSaveOnly = async () => {
+    try {
+      const values = await form.validateFields();
+      // Allow empty card number for save-only
+      const saved = localEntryService.addEntry({
+        name: { first: values.firstName.trim(), last: values.lastName.trim() },
+        club: values.club.trim(),
+        className: values.className,
+        classId: values.classId,
+        cardNumber: values.cardNumber || '0',
+        birthYear: values.birthYear,
+        sex: values.sex,
+        phone: values.phone,
+        nationality: values.nationality,
+        isHiredCard: false,
+        fee: classes.find(c => c.id === values.classId)?.fee || 0,
+        importedFrom: 'manual'
+      });
+      message.success(`Saved ${values.firstName} ${values.lastName} (not checked-in)`);
+      if (onRegistrationComplete) onRegistrationComplete(saved as any, values.cardNumber || '0');
+      handleClose();
+    } catch (e) {
+      // validation errors are shown by antd
+    }
+  };
+
   const handleClose = () => {
     form.resetFields();
     setFoundRunner(null);
@@ -276,6 +315,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         <Button key="cancel" onClick={handleClose}>
           Cancel
         </Button>,
+        <Button key="save" onClick={handleSaveOnly} icon={<UserAddOutlined />}>Save (No Check-In)</Button>,
         <Button 
           key="submit" 
           type="primary" 
@@ -307,14 +347,14 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
       )}
 
       {/* No Runner Found Alert */}
-      {cardNumber && !foundRunner && !loading && (
+      {(cardNumber || lastCard) && !foundRunner && !loading && (
         <Alert
           message="New Runner Registration"
           description={
             <Space>
               <IdcardOutlined />
               <Text>
-                Card <Text strong>{cardNumber}</Text> not found in database. 
+                Card <Text strong>{cardNumber || lastCard}</Text> not found in database. 
                 Please enter the runner's details below for registration.
               </Text>
             </Space>
@@ -332,6 +372,15 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
           cardNumber: cardNumber || ''
         }}
       >
+        {/* Reader status */}
+        <Alert 
+          type={readerStatus.connected ? 'success' : 'warning'} 
+          showIcon 
+          style={{ marginBottom: 12 }}
+          message={readerStatus.connected ? 'Card Reader Connected' : 'Card Reader Disconnected'}
+          action={!readerStatus.connected ? (<Button size="small" onClick={async ()=>{try{await sportIdentService.connect(); setReaderStatus(sportIdentService.getStatus());}catch{}}}>Connect</Button>) : undefined}
+        />
+
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
@@ -367,9 +416,12 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
             <Form.Item
               label="Card Number"
               name="cardNumber"
-              rules={[{ required: true, message: 'Please enter card number' }]}
+              rules={[]}
             >
-              <Input placeholder="Card number" disabled={!!cardNumber} />
+              <Input 
+                placeholder="Scan card or enter number" 
+                addonAfter={<IdcardOutlined onClick={() => lastCard && form.setFieldsValue({ cardNumber: lastCard })} />} 
+              />
             </Form.Item>
           </Col>
         </Row>
@@ -396,8 +448,25 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item label="Birth Year" name="birthYear">
-              <Input placeholder="Birth year (optional)" type="number" />
+            <Form.Item 
+              label="Birth Year" 
+              name="birthYear"
+              rules={[
+                {
+                  validator: async (_, value) => {
+                    const natRaw = form.getFieldValue('nationality');
+                    const natNum = parseInt(natRaw || '0', 10);
+                    if (!natNum || natNum <= 1) {
+                      if (!value || `${value}`.trim() === '') {
+                        return Promise.reject(new Error('Birth Year is required unless Nationality > 1'));
+                      }
+                    }
+                    return Promise.resolve();
+                  }
+                }
+              ]}
+            >
+              <Input placeholder="Birth year" type="number" />
             </Form.Item>
           </Col>
         </Row>
