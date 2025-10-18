@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Form, Input, Select, Row, Col, Space, Button, Typography, message } from 'antd';
+import { Modal, Form, Input, Select, Row, Col, Space, Button, Typography, message, Alert } from 'antd';
 import { IdcardOutlined, LoginOutlined } from '@ant-design/icons';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
 import { meosClassService } from '../services/meosClassService';
 import { meosApi } from '../services/meosApi';
+import { sportIdentService, type SICardReadEvent } from '../services/sportIdentService';
 
 const { Text } = Typography;
 const { Option } = Select;
@@ -21,6 +22,8 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
   const [form] = Form.useForm();
   const [classes, setClasses] = useState<Array<{ id: string; name: string; fee?: number }>>([]);
   const [saving, setSaving] = useState(false);
+  const [readerStatus, setReaderStatus] = useState(sportIdentService.getStatus());
+  const [lastCard, setLastCard] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -59,6 +62,23 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
       form.resetFields();
     }
   }, [open, entry, form]);
+
+  // Listen to SI card reader while modal is open to auto-fill card number
+  useEffect(() => {
+    if (!open) return;
+    const cb = (ev: SICardReadEvent) => {
+      setReaderStatus(sportIdentService.getStatus());
+      if (ev.type === 'card_read' && ev.card) {
+        const c = ev.card.cardNumber.toString();
+        setLastCard(c);
+        form.setFieldsValue({ cardNumber: c });
+        message.success(`Card ${c} read`);
+      }
+    };
+    sportIdentService.addCallback(cb);
+    const interval = setInterval(() => setReaderStatus(sportIdentService.getStatus()), 2000);
+    return () => { sportIdentService.removeCallback(cb); clearInterval(interval); };
+  }, [open]);
 
   const applyLastCard = () => {
     if (lastCardNumber && lastCardNumber !== '0') {
@@ -156,7 +176,18 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
       footer={null}
       width={720}
       destroyOnClose
-    >
+>
+      <Alert 
+        type={readerStatus.connected ? 'success' : 'warning'} 
+        showIcon 
+        style={{ marginBottom: 12 }}
+        message={readerStatus.connected ? 'Card Reader Connected' : 'Card Reader Disconnected'}
+        action={!readerStatus.connected ? (
+          <Button size="small" onClick={async ()=>{try{await sportIdentService.connect(); setReaderStatus(sportIdentService.getStatus());}catch{}}}>
+            Connect
+          </Button>
+        ) : undefined}
+      />
       <Form form={form} layout="vertical">
         <Row gutter={16}>
           <Col span={12}>
@@ -216,7 +247,7 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
           </Col>
           <Col span={12}>
             <Form.Item label="Card Number" name="cardNumber" rules={[{ required: true }]}>
-              <Input addonAfter={<IdcardOutlined onClick={applyLastCard} />} />
+              <Input addonAfter={<IdcardOutlined onClick={() => { if (lastCard) { form.setFieldsValue({ cardNumber: lastCard }); } else { applyLastCard(); } }} />} />
             </Form.Item>
           </Col>
         </Row>
