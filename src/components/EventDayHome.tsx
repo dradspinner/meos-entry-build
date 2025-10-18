@@ -24,6 +24,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
   const [readerStatus, setReaderStatus] = useState(sportIdentService.getStatus());
   const [meosIndex, setMeosIndex] = useState<{ byCard: Set<string>; byName: Set<string> } | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [attemptedVerify, setAttemptedVerify] = useState(false);
   const [filterKey, setFilterKey] = useState<'all' | 'pending' | 'checked-in' | 'needsRental'>('all');
 
   const refresh = () => setEntries(localEntryService.getAllEntries());
@@ -49,6 +50,32 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
     const interval = setInterval(() => setReaderStatus(sportIdentService.getStatus()), 2000);
     return () => { sportIdentService.removeCallback(cb); clearInterval(interval); };
   }, [entries]);
+
+  // Auto-verify in MeOS once when there are checked-in entries
+  React.useEffect(() => {
+    const hasCheckedIn = entries.some(e => e.status === 'checked-in');
+    if (hasCheckedIn && !attemptedVerify && !meosIndex && !verifying) {
+      (async () => {
+        try {
+          setVerifying(true);
+          const list = await meosApi.getAllEntries();
+          const byCard = new Set<string>();
+          const byName = new Set<string>();
+          list.forEach((m:any)=>{
+            if (m.cardNumber && m.cardNumber !== '0') byCard.add(String(m.cardNumber));
+            const nm = `${(m.name?.first||'').toLowerCase()} ${(m.name?.last||'').toLowerCase()}`.trim();
+            if (nm) byName.add(nm);
+          });
+          setMeosIndex({ byCard, byName });
+        } catch (e) {
+          // silent
+        } finally {
+          setVerifying(false);
+          setAttemptedVerify(true);
+        }
+      })();
+    }
+  }, [entries, attemptedVerify, meosIndex, verifying]);
 
   const totalEntries = entries.length;
   const checkedIn = entries.filter(e => e.status === 'checked-in').length;
@@ -153,7 +180,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
         </Space>
       </Card>
 
-      <Table
+      <Table size="small" className="table-compact"
         rowKey={(r: LocalEntry)=>r.id}
         dataSource={entries.filter(e => {
           // Quick filter by metric
@@ -179,7 +206,21 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
           { title: 'Rental?', key: 'rental', sorter: (a: LocalEntry, b: LocalEntry) => Number(!!a.issues?.needsRentalCard) - Number(!!b.issues?.needsRentalCard), render: (_: any, r: LocalEntry) => r.issues?.needsRentalCard ? <Tag color="red">Needs Rental</Tag> : null },
           { title: 'MeOS', key: 'meos', render: (_:any, r: LocalEntry) => {
               if (r.status !== 'checked-in') return <Tag>-</Tag>;
-              if (!meosIndex) return <Tag>Unknown</Tag>;
+              if (!meosIndex) return <Button size="small" onClick={async ()=>{
+                try {
+                  setVerifying(true);
+                  const list = await meosApi.getAllEntries();
+                  const byCard = new Set<string>();
+                  const byName = new Set<string>();
+                  list.forEach((m:any)=>{
+                    if (m.cardNumber && m.cardNumber !== '0') byCard.add(String(m.cardNumber));
+                    const nm = `${(m.name?.first||'').toLowerCase()} ${(m.name?.last||'').toLowerCase()}`.trim();
+                    if (nm) byName.add(nm);
+                  });
+                  setMeosIndex({ byCard, byName });
+                  message.success('Verified in MeOS');
+                } finally { setVerifying(false); }
+              }}>Verify</Button>;
               const inMeos = (r.cardNumber && r.cardNumber !== '0' && meosIndex.byCard.has(String(r.cardNumber))) || meosIndex.byName.has(`${r.name.first.toLowerCase()} ${r.name.last.toLowerCase()}`);
               return inMeos ? <Tag color="green">In MeOS</Tag> : <Tag color="red">Missing</Tag>;
             }
@@ -187,7 +228,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
           { title: 'Actions', key: 'actions', render: (_: any, r: LocalEntry) => (
             <Space>
               <Button size="small" icon={<EditOutlined />} onClick={()=>{setSelected(r); setEditOpen(true);}}>Edit</Button>
-              {r.status !== 'checked-in' && (
+              {r.status !== 'checked-in' ? (
                 <>
                   <Button size="small" icon={<IdcardOutlined />} onClick={()=>{
                     if (lastCard) {
@@ -203,6 +244,12 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
                     setEditOpen(true);
                   }}>Check In</Button>
                 </>
+              ) : (
+                <Button size="small" danger onClick={()=>{
+                  // Uncheck-in: revert to pending
+                  const upd = localEntryService.updateEntry(r.id, { status: 'pending', checkedInAt: undefined, submittedToMeosAt: undefined });
+                  if (upd) { message.success('Entry set to pending'); refresh(); }
+                }}>Uncheck-In</Button>
               )}
             </Space>
           )}

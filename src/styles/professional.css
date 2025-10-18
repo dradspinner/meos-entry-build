@@ -162,6 +162,21 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+/* Table compact */
+.table-compact .ant-table-tbody > tr > td,
+.table-compact .ant-table-thead > tr > th {
+  padding: 6px 8px !important;
+}
+.table-compact .ant-btn {
+  height: 24px !important;
+  padding: 0 8px !important;
+}
+.table-compact .ant-tag {
+  line-height: 16px !important;
+  height: 20px !important;
+  padding: 0 6px !important;
+}
+
 /* Loading states */
 .ant-spin-container {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;

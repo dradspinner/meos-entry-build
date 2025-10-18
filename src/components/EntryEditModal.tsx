@@ -182,6 +182,27 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
             </Form.Item>
           </Col>
         </Row>
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item 
+              label="Birth Year" 
+              name="birthYear"
+              rules={[{
+                validator: async (_, value) => {
+                  const natNum = parseInt((entry?.nationality as any) || '0', 10);
+                  if (!natNum || natNum <= 1) {
+                    if (!value || `${value}`.trim() === '') {
+                      return Promise.reject(new Error('Birth Year is required unless Nationality > 1'));
+                    }
+                  }
+                  return Promise.resolve();
+                }
+              }]}
+            >
+              <Input />
+            </Form.Item>
+          </Col>
+        </Row>
       </Form>
       <Row justify="end">
         <Space>
