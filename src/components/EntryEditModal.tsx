@@ -3,6 +3,7 @@ import { Modal, Form, Input, Select, Row, Col, Space, Button, Typography, messag
 import { IdcardOutlined, LoginOutlined } from '@ant-design/icons';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
 import { meosClassService } from '../services/meosClassService';
+import { meosApi } from '../services/meosApi';
 
 const { Text } = Typography;
 const { Option } = Select;
@@ -107,8 +108,27 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
     if (updated) {
       const checkedIn = localEntryService.checkInEntry(updated.id, values.cardNumber);
       if (checkedIn) {
+        try {
+          // Map class to MeOS class id
+          const classMap = await meosClassService.getClassId(checkedIn.className, checkedIn.classId);
+          const natNum = parseInt((entry?.nationality as any) || '0', 10);
+          const sexVal = (!natNum || natNum <= 1) ? values.sex : undefined;
+          await meosApi.createEntry({
+            name: `${values.firstName} ${values.lastName}`.trim(),
+            club: values.club,
+            classId: classMap.id,
+            cardNumber: parseInt(values.cardNumber) || 0,
+            phone: values.phone,
+            birthYear: values.birthYear ? parseInt(values.birthYear) : undefined,
+            sex: sexVal as any,
+            nationality: entry?.nationality
+          });
+          localEntryService.markSubmittedToMeos(checkedIn.id);
+          message.success(`Checked in and submitted to MeOS: ${checkedIn.name.first} ${checkedIn.name.last}`);
+        } catch (e) {
+          message.warning('Checked in locally, but MeOS submit failed. You can retry after Verify.');
+        }
         onCheckedIn(checkedIn);
-        message.success(`Checked in ${checkedIn.name.first} ${checkedIn.name.last}`);
       }
     }
   };
@@ -129,8 +149,24 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
       <Form form={form} layout="vertical">
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item label="First Name" name="firstName" rules={[{ required: true }]}>
+            <Form.Item 
+              label="First Name" 
+              name="firstName" 
+              rules={[{
+                validator: async (_, value) => {
+                  const natNum = parseInt((entry?.nationality as any) || '0', 10);
+                  if (!natNum || natNum <= 1) {
+                    if (!value || `${value}`.trim() === '') {
+                      return Promise.reject(new Error('First Name is required unless Nationality > 1'));
+                    }
+                  }
+                  return Promise.resolve();
+                }
+              }]}
+            >
               <Input />
+            </Form.Item>
+          </Col>
             </Form.Item>
           </Col>
           <Col span={12}>

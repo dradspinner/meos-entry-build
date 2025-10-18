@@ -93,18 +93,14 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
         </div>
       )}
 
-      <Title level={2} style={{ marginBottom: 8 }}>Event Day Dashboard</Title>
+      <Title level={2} style={{ marginBottom: 8 }}>
+        Event Day Dashboard {meta && (
+          <Text type="secondary" style={{ marginLeft: 12 }}>
+            — {meta.name} • {meta.date || 'N/A'}
+          </Text>
+        )}
+      </Title>
       <Text type="secondary">Check-in pre-registered runners or register new entries</Text>
-
-      {meta && (
-        <Alert
-          style={{ marginTop: 12 }}
-          type="success"
-          showIcon
-          message={meta.name}
-          description={<Text type="secondary">Date: {meta.date || 'N/A'}</Text>}
-        />
-      )}
 
       <Row gutter={[16, 16]} style={{ marginTop: 16, marginBottom: 16 }}>
         <Col xs={24} sm={6}>
@@ -198,7 +194,8 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
         })}
         pagination={false}
         columns={[
-          { title: 'Name', dataIndex: 'name', key: 'name', sorter: (a: LocalEntry, b: LocalEntry) => (`${a.name.last} ${a.name.first}`).localeCompare(`${b.name.last} ${b.name.first}`), render: (_: any, r: LocalEntry) => `${r.name.first} ${r.name.last}` },
+          { title: 'First Name', dataIndex: ['name','first'], key: 'first', sorter: (a: LocalEntry, b: LocalEntry) => (a.name.first||'').localeCompare(b.name.first||'') },
+          { title: 'Last Name', dataIndex: ['name','last'], key: 'last', sorter: (a: LocalEntry, b: LocalEntry) => (a.name.last||'').localeCompare(b.name.last||'') },
           { title: 'Club', dataIndex: 'club', key: 'club', sorter: (a: LocalEntry, b: LocalEntry) => a.club.localeCompare(b.club) },
           { title: 'Class', dataIndex: 'className', key: 'className', sorter: (a: LocalEntry, b: LocalEntry) => (a.className||'').localeCompare(b.className||'') },
           { title: 'Card', dataIndex: 'cardNumber', key: 'cardNumber', sorter: (a: LocalEntry, b: LocalEntry) => (parseInt(a.cardNumber||'0')||0) - (parseInt(b.cardNumber||'0')||0), render: (v: string) => v && v !== '0' ? <Tag>#{v}</Tag> : <Tag color="warning">None</Tag> },

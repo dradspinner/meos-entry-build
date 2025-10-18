@@ -390,18 +390,28 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
             <Form.Item
               label="First Name"
               name="firstName"
-              rules={[{ required: true, message: 'Please enter first name' }]}
+              rules={[{
+                validator: async (_, value) => {
+                  const nat = parseInt(form.getFieldValue('nationality') || '0', 10);
+                  if (!nat || nat <= 1) {
+                    if (!value || `${value}`.trim() === '') {
+                      return Promise.reject(new Error('First Name is required unless Nationality > 1'));
+                    }
+                  }
+                  return Promise.resolve();
+                }
+              }]}
             >
-              <Input placeholder="Enter first name" />
+              <Input placeholder="Enter first name (not required for groups)" />
             </Form.Item>
           </Col>
           <Col span={12}>
             <Form.Item
-              label="Last Name"
+              label="Last Name / Group"
               name="lastName"
-              rules={[{ required: true, message: 'Please enter last name' }]}
+              rules={[{ required: true, message: 'Please enter last name or group name' }]}
             >
-              <Input placeholder="Enter last name" />
+              <Input placeholder="Enter last name (or group name if group)" />
             </Form.Item>
           </Col>
         </Row>
