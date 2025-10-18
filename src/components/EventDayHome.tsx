@@ -26,10 +26,14 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
   const [verifying, setVerifying] = useState(false);
   const [attemptedVerify, setAttemptedVerify] = useState(false);
   const [filterKey, setFilterKey] = useState<'all' | 'pending' | 'checked-in' | 'needsRental'>('all');
+  const [meosConnected, setMeosConnected] = useState<boolean | null>(null);
+  const [checkingMeos, setCheckingMeos] = useState(false);
 
   const refresh = () => setEntries(localEntryService.getAllEntries());
 
   React.useEffect(() => {
+    // Initial MeOS status check
+    checkMeos();
     const cb = (ev: SICardReadEvent) => {
       setReaderStatus(sportIdentService.getStatus());
       if (ev.type === 'card_read' && ev.card) {
@@ -83,6 +87,18 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
   const needsRental = entries.filter(e => e.issues?.needsRentalCard).length;
   const meta = eventMetaService.get();
 
+  const checkMeos = async () => {
+    try {
+      setCheckingMeos(true);
+      const ok = await meosApi.testConnection();
+      setMeosConnected(ok);
+    } catch {
+      setMeosConnected(false);
+    } finally {
+      setCheckingMeos(false);
+    }
+  };
+
   return (
     <div style={{ padding: '24px', maxWidth: 1200, margin: '0 auto' }}>
       {onBack && (
@@ -97,6 +113,18 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
         {`Event Day Dashboard - ${meta?.name || ''} || ${meta?.date || ''}`}
       </Title>
       <Text type="secondary">Check-in pre-registered runners or register new entries</Text>
+
+      <Row justify="space-between" align="middle" style={{ marginTop: 8 }}>
+        <Col>
+          <Space>
+            <Badge 
+              status={meosConnected === null ? 'default' : meosConnected ? 'success' : 'error'} 
+              text={meosConnected === null ? 'MeOS API: Unknown' : meosConnected ? 'MeOS API: Connected' : 'MeOS API: Disconnected'}
+            />
+            <Button size="small" loading={checkingMeos} onClick={checkMeos}>Refresh</Button>
+          </Space>
+        </Col>
+      </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16, marginBottom: 16 }}>
         <Col xs={24} sm={6}>
@@ -199,6 +227,8 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
           { title: 'Rental?', key: 'rental', sorter: (a: LocalEntry, b: LocalEntry) => Number(!!a.issues?.needsRentalCard) - Number(!!b.issues?.needsRentalCard), render: (_: any, r: LocalEntry) => r.issues?.needsRentalCard ? <Tag color="red">Needs Rental</Tag> : null },
           { title: 'MeOS', key: 'meos', render: (_:any, r: LocalEntry) => {
               if (r.status !== 'checked-in') return <Tag>-</Tag>;
+              // Optimistic: recently submitted entries show as In MeOS until verified
+              if ((r as any).submittedToMeosAt) return <Tag color="green">Submitted</Tag>;
               if (!meosIndex) return <Button size="small" onClick={async ()=>{
                 try {
                   setVerifying(true);
