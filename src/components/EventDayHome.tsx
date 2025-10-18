@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Card, Row, Col, Button, Typography, Statistic, Table, Input, Tag, Space, Badge, message } from 'antd';
+import { Card, Row, Col, Button, Typography, Statistic, Table, Input, Tag, Space, Badge, message, Alert } from 'antd';
 import { CheckCircleOutlined, UserAddOutlined, DatabaseOutlined, ArrowLeftOutlined, UsbOutlined, EditOutlined, IdcardOutlined, LoginOutlined, ReloadOutlined } from '@ant-design/icons';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
+import { eventMetaService } from '../services/eventMetaService';
 import SameDayRegistration from './SameDayRegistration';
 import EntryEditModal from './EntryEditModal';
 import { sportIdentService, type SICardReadEvent } from '../services/sportIdentService';
@@ -48,6 +49,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
   const totalEntries = entries.length;
   const checkedIn = entries.filter(e => e.status === 'checked-in').length;
   const pending = totalEntries - checkedIn;
+  const meta = eventMetaService.get();
 
   return (
     <div style={{ padding: '24px', maxWidth: 1200, margin: '0 auto' }}>
@@ -61,6 +63,16 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
 
       <Title level={2} style={{ marginBottom: 8 }}>Event Day Dashboard</Title>
       <Text type="secondary">Check-in pre-registered runners or register new entries</Text>
+
+      {meta && (
+        <Alert
+          style={{ marginTop: 12 }}
+          type="success"
+          showIcon
+          message={meta.name}
+          description={<Text type="secondary">Date: {meta.date || 'N/A'}</Text>}
+        />
+      )}
 
       <Row gutter={[16, 16]} style={{ marginTop: 16, marginBottom: 16 }}>
         <Col xs={24} sm={6}>
@@ -126,13 +138,13 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
             e.className?.toLowerCase().includes(q)
           );
         })}
-        pagination={{ pageSize: 10 }}
+        pagination={false}
         columns={[
           { title: 'Name', dataIndex: 'name', key: 'name', render: (_: any, r: LocalEntry) => `${r.name.first} ${r.name.last}` },
           { title: 'Club', dataIndex: 'club', key: 'club' },
           { title: 'Class', dataIndex: 'className', key: 'className' },
           { title: 'Card', dataIndex: 'cardNumber', key: 'cardNumber', render: (v: string) => v && v !== '0' ? <Tag>#{v}</Tag> : <Tag color="warning">None</Tag> },
-          { title: 'Rental?', key: 'rental', render: (_: any, r: LocalEntry) => r.issues?.needsRentalCard ? <Tag color="orange">Needs Rental</Tag> : null },
+          { title: 'Rental?', key: 'rental', render: (_: any, r: LocalEntry) => r.issues?.needsRentalCard ? <Tag color="red">Needs Rental</Tag> : null },
           { title: 'Actions', key: 'actions', render: (_: any, r: LocalEntry) => (
             <Space>
               <Button size="small" icon={<EditOutlined />} onClick={()=>{setSelected(r); setEditOpen(true);}}>Edit</Button>
