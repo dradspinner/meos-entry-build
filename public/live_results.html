@@ -370,35 +370,61 @@
             isRefreshing = true;
             
             try {
-                console.log('Loading results from MeOS XML export...');
+                console.log('🔄 Starting comprehensive results fetch...');
                 
-                // Load the XML splits file from MeOS Export service
-                const xmlResponse = await fetch('/load-splits-xml', {
-                    method: 'GET',
-                    signal: AbortSignal.timeout(10000)
-                });
-                
-                if (!xmlResponse.ok) {
-                    throw new Error(`Failed to load splits XML: ${xmlResponse.status}`);
+                // Step 1: Load XML splits data (detailed results with split times)
+                let xmlResults = [];
+                try {
+                    console.log('📄 Loading XML splits data...');
+                    const xmlResponse = await fetch('/load-splits-xml', {
+                        method: 'GET',
+                        signal: AbortSignal.timeout(10000)
+                    });
+                    
+                    if (xmlResponse.ok) {
+                        const xmlText = await xmlResponse.text();
+                        console.log(`✅ XML loaded (${Math.round(xmlText.length / 1024)}KB)`);
+                        
+                        const parsedData = parseSplitsXml(xmlText);
+                        xmlResults = transformSplitsData(parsedData);
+                        console.log(`📊 XML: ${xmlResults.length} classes, ${xmlResults.reduce((sum, c) => sum + c.runners.length, 0)} runners`);
+                    } else {
+                        console.warn('⚠️ XML splits not available:', xmlResponse.status);
+                    }
+                } catch (xmlError) {
+                    console.warn('⚠️ XML splits failed:', xmlError.message);
                 }
                 
-                const xmlText = await xmlResponse.text();
-                console.log(`Loaded XML file (${Math.round(xmlText.length / 1024)}KB)`);
+                // Step 2: Load MeOS API data (real-time checked-in runners)
+                let apiResults = [];
+                try {
+                    console.log('🌐 Loading MeOS API data...');
+                    const apiResponse = await fetch('http://localhost:3001/api/meos/entries', {
+                        method: 'GET',
+                        signal: AbortSignal.timeout(5000)
+                    });
+                    
+                    if (apiResponse.ok) {
+                        const apiData = await apiResponse.json();
+                        apiResults = transformMeosApiData(apiData);
+                        console.log(`🔗 API: ${apiResults.length} classes, ${apiResults.reduce((sum, c) => sum + c.runners.length, 0)} runners`);
+                    } else {
+                        console.warn('⚠️ MeOS API not available:', apiResponse.status);
+                    }
+                } catch (apiError) {
+                    console.warn('⚠️ MeOS API failed:', apiError.message);
+                }
                 
-                // Parse the IOF 3.0 XML format
-                const parsedData = parseSplitsXml(xmlText);
-                console.log(`Parsed ${parsedData.classes.length} classes, ${parsedData.runners.length} runners`);
+                // Step 3: Merge and prioritize data sources
+                const mergedResults = mergeDataSources(xmlResults, apiResults);
+                console.log(`🔀 Merged: ${mergedResults.length} classes, ${mergedResults.reduce((sum, c) => sum + c.runners.length, 0)} total runners`);
                 
-                // Transform to our display format
-                const transformedResults = transformSplitsData(parsedData);
-                console.log('Transformed to:', transformedResults.length, 'class results');
-                
-                currentResults = transformedResults;
-                displayResults(transformedResults);
+                currentResults = mergedResults;
+                displayResults(mergedResults);
                 updateLastUpdateTime();
                 
                 // Update API status
-                apiStatus = 'online';
+                apiStatus = xmlResults.length > 0 || apiResults.length > 0 ? 'online' : 'offline';
                 updateStatusDisplay();
                 
             } catch (error) {
@@ -1028,7 +1054,8 @@
             const transformedClasses = parsedData.classes.map(classData => ({
                 className: classData.name,
                 courseLength: classData.length || 5000,
-                runners: classData.runners
+                runners: classData.runners,
+                dataSource: 'xml_splits'
             }));
             
             // Sort classes using custom orienteering color course order
@@ -1037,6 +1064,123 @@
             });
             
             return transformedClasses;
+        }
+        
+        // Transform MeOS API data to our display format
+        function transformMeosApiData(apiData) {
+            if (!Array.isArray(apiData)) {
+                console.warn('API data is not an array:', apiData);
+                return [];
+            }
+            
+            // Group by class
+            const classGroups = {};
+            
+            apiData.forEach(entry => {
+                const className = entry.className || 'Unknown';
+                if (!classGroups[className]) {
+                    classGroups[className] = {
+                        className: className,
+                        courseLength: 5000, // Default - no course length from API
+                        runners: [],
+                        dataSource: 'meos_api'
+                    };
+                }
+                
+                // Transform API entry to our runner format
+                const runner = {
+                    fullName: `${entry.name?.first || ''} ${entry.name?.last || ''}`.trim(),
+                    club: entry.club || '',
+                    totalTime: null, // API doesn't provide finish times typically
+                    timeBehindLeader: null,
+                    timeLost: null,
+                    position: null,
+                    status: determineApiStatus(entry)
+                };
+                
+                classGroups[className].runners.push(runner);
+            });
+            
+            // Convert to array and sort
+            const transformedClasses = Object.values(classGroups);
+            transformedClasses.sort((a, b) => {
+                return compareClassNames(a.className, b.className, []);
+            });
+            
+            return transformedClasses;
+        }
+        
+        // Determine status from MeOS API entry
+        function determineApiStatus(entry) {
+            if (entry.status === 'checked-in') {
+                // Check if they have a start time in MeOS
+                if (entry.startTime) {
+                    return 'in_forest';
+                } else {
+                    return 'checked_in';
+                }
+            }
+            return entry.status || 'checked_in';
+        }
+        
+        // Merge data sources, prioritizing XML splits over API data
+        function mergeDataSources(xmlResults, apiResults) {
+            if (xmlResults.length === 0 && apiResults.length === 0) {
+                return [];
+            }
+            
+            if (xmlResults.length === 0) {
+                console.log('Using API data only');
+                return apiResults;
+            }
+            
+            if (apiResults.length === 0) {
+                console.log('Using XML data only');
+                return xmlResults;
+            }
+            
+            console.log('Merging XML and API data sources');
+            
+            // Create a map of XML classes for quick lookup
+            const xmlClassMap = {};
+            xmlResults.forEach(classResult => {
+                xmlClassMap[classResult.className] = classResult;
+            });
+            
+            // Start with XML results (they have more detailed data)
+            const mergedResults = [...xmlResults];
+            
+            // Add API-only runners to existing classes or create new classes
+            apiResults.forEach(apiClass => {
+                const xmlClass = xmlClassMap[apiClass.className];
+                
+                if (xmlClass) {
+                    // Class exists in XML, merge runners
+                    const xmlRunnerNames = new Set(xmlClass.runners.map(r => r.fullName.toLowerCase()));
+                    
+                    // Add API runners not in XML (e.g., just checked in)
+                    apiClass.runners.forEach(apiRunner => {
+                        if (!xmlRunnerNames.has(apiRunner.fullName.toLowerCase())) {
+                            console.log(`➕ Adding API-only runner: ${apiRunner.fullName} (${apiClass.className})`);
+                            xmlClass.runners.push({
+                                ...apiRunner,
+                                dataSource: 'meos_api'
+                            });
+                        }
+                    });
+                } else {
+                    // Class doesn't exist in XML, add entire class from API
+                    console.log(`➕ Adding API-only class: ${apiClass.className}`);
+                    mergedResults.push(apiClass);
+                }
+            });
+            
+            // Re-sort classes after merging
+            mergedResults.sort((a, b) => {
+                return compareClassNames(a.className, b.className, []);
+            });
+            
+            return mergedResults;
         }
         
         // Mock fallback time lost data (in milliseconds) - used if XML loading fails

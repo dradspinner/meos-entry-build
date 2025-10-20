@@ -42,7 +42,8 @@ import {
   UndoOutlined,
   InfoCircleOutlined,
   CloseOutlined,
-  UsbOutlined
+  UsbOutlined,
+  TrophyOutlined
 } from '@ant-design/icons';
 import { meosApi } from '../services/meosApi';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
@@ -1849,6 +1850,155 @@ const EventDayDashboard: React.FC = () => {
     
     return clubs.sort((a, b) => a.name.localeCompare(b.name));
   }, [entries]);
+  
+  // Live Results Integration Functions
+  const handleSetupLiveResults = () => {
+    // Use a default path - user can customize if needed
+    const recommendedPath = `C:\\Users\\[USERNAME]\\Documents\\MeOS\\results.xml`;
+    const examplePath = `C:\\Users\\drads\\Documents\\MeOS\\results.xml`;
+    
+    Modal.info({
+      title: '🏆 Live Results Setup',
+      width: 800,
+      content: (
+        <div>
+          <Alert
+            message="Complete Live Results Integration"
+            description="This system combines MeOS API data with XML split analysis for comprehensive live results."
+            type="info"
+            showIcon
+            style={{ marginBottom: '16px' }}
+          />
+          
+          <div style={{ marginBottom: '20px' }}>
+            <Text strong style={{ fontSize: '16px', color: '#1890ff' }}>📂 Recommended MeOS XML Export Path:</Text>
+            <div style={{ 
+              background: '#f5f5f5', 
+              padding: '12px', 
+              borderRadius: '6px', 
+              margin: '8px 0',
+              fontFamily: 'monospace',
+              fontSize: '12px',
+              wordBreak: 'break-all'
+            }}>
+              {recommendedPath}
+            </div>
+            <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+              <Text type="secondary">Example: </Text>
+              <Text code style={{ fontSize: '11px' }}>{examplePath}</Text>
+            </div>
+            <Button 
+              type="link" 
+              size="small"
+              onClick={() => navigator.clipboard.writeText(examplePath)}
+            >
+              📋 Copy Example Path
+            </Button>
+          </div>
+          
+          <div style={{ padding: '16px', backgroundColor: '#fff7e6', border: '1px solid #ffd591', borderRadius: '6px', marginBottom: '16px' }}>
+            <Text strong style={{ color: '#fa8c16' }}>⚡ MeOS Setup Instructions:</Text>
+            <ol style={{ margin: '8px 0', paddingLeft: '20px' }}>
+              <li><strong>Results → Export</strong></li>
+              <li>Select <strong>"IOF XML 3.0"</strong> format</li>
+              <li>Check <strong>"Include split times"</strong></li>
+              <li><strong>Paste the path above</strong> as filename</li>
+              <li>Click <strong>"Export"</strong></li>
+              <li>Set up <strong>auto-export every 30 seconds</strong></li>
+            </ol>
+          </div>
+          
+          <div style={{ padding: '16px', backgroundColor: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: '6px', marginBottom: '16px' }}>
+            <Text strong style={{ color: '#52c41a' }}>🔄 Live Integration Features:</Text>
+            <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+              <li><strong>MeOS API</strong> - Real-time checked-in runners & basic results</li>
+              <li><strong>XML Splits</strong> - Detailed split times & time lost analysis</li>
+              <li><strong>Multi-screen</strong> - Optimized display for multiple monitors</li>
+              <li><strong>Color-coded</strong> - Standard orienteering course progression</li>
+            </ul>
+          </div>
+          
+          <div style={{ padding: '16px', backgroundColor: '#f0f8ff', border: '1px solid #91caff', borderRadius: '6px' }}>
+            <Text strong style={{ color: '#1890ff' }}>💡 How It Works:</Text>
+            <p style={{ margin: '8px 0', fontSize: '14px' }}>The live results system automatically:</p>
+            <ul style={{ margin: '8px 0', paddingLeft: '20px', fontSize: '14px' }}>
+              <li>Fetches checked-in runners from MeOS API (handles runners not in XML yet)</li>
+              <li>Loads detailed results from XML splits file (comprehensive time analysis)</li>
+              <li>Merges data for complete coverage of all runner states</li>
+              <li>Applies MeOS-compatible time lost calculations</li>
+            </ul>
+          </div>
+        </div>
+      ),
+      onOk() {
+        // Optional: Start service check or open results
+      },
+    });
+  };
+  
+  const handleOpenLiveResults = async () => {
+    try {
+      // Check if the results service is running
+      const serviceUrl = 'http://localhost:8001';
+      const testResponse = await fetch(`${serviceUrl}/results.xml`, { 
+        method: 'HEAD',
+        signal: AbortSignal.timeout(2000)
+      });
+      
+      if (testResponse.ok) {
+        // Service is running, open results
+        const resultsUrl = `${window.location.protocol}//${window.location.host}/live_results.html`;
+        window.open(resultsUrl, 'LiveResults', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+        message.success('🏆 Live Results opened - Service is running!');
+      } else {
+        throw new Error('Service not responding');
+      }
+    } catch (error) {
+      // Service not running, show setup instructions
+      Modal.warning({
+        title: '⚠️ Results Service Not Running',
+        width: 700,
+        content: (
+          <div>
+            <Alert
+              message="Local Results Server Required"
+              description="The live results display requires a local server to serve XML files due to browser security restrictions."
+              type="warning"
+              showIcon
+              style={{ marginBottom: '16px' }}
+            />
+            
+            <div style={{ padding: '16px', backgroundColor: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: '6px', marginBottom: '16px' }}>
+              <Text strong style={{ color: '#52c41a' }}>🚀 Quick Start (Windows):</Text>
+              <ol style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                <li>Open Command Prompt or PowerShell</li>
+                <li>Navigate to: <code style={{ backgroundColor: '#f5f5f5', padding: '2px 4px' }}>C:\Users\drads\OneDrive\DVOA\MeOS Entry Build\meos-entry-build\public</code></li>
+                <li>Run: <code style={{ backgroundColor: '#f5f5f5', padding: '2px 4px' }}>run_server.bat</code></li>
+                <li>Leave the window open during the event</li>
+              </ol>
+            </div>
+            
+            <div style={{ padding: '16px', backgroundColor: '#f0f8ff', border: '1px solid #91caff', borderRadius: '6px' }}>
+              <Text strong style={{ color: '#1890ff' }}>📊 What the server does:</Text>
+              <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                <li>Serves XML files from local filesystem (bypasses CORS)</li>
+                <li>Provides live results at <code>http://localhost:8001</code></li>
+                <li>Automatically refreshes data every 30 seconds</li>
+                <li>Combines MeOS API + XML split data</li>
+              </ul>
+            </div>
+          </div>
+        ),
+        onOk() {
+          // Still try to open results even if service isn't running
+          const resultsUrl = `${window.location.protocol}//${window.location.host}/live_results.html`;
+          window.open(resultsUrl, 'LiveResults', 'width=1200,height=800,scrollbars=yes,resizable=yes');
+        },
+        okText: 'Open Results Anyway',
+        cancelText: 'Setup First'
+      });
+    }
+  };
 
   // Table columns
   const columns: ColumnsType<LocalEntry> = [
@@ -2162,6 +2312,39 @@ const EventDayDashboard: React.FC = () => {
                   ⚠️ {stats.needsAttention} entries need attention
                 </Text>
               )}
+            </Space>
+          </Col>
+        </Row>
+      </Card>
+
+      {/* Live Results Integration Panel */}
+      <Card size="small" style={{ marginBottom: '16px' }}>
+        <Row gutter={16} align="middle">
+          <Col flex="auto">
+            <Space>
+              <TrophyOutlined style={{ 
+                color: '#1890ff',
+                fontSize: '16px' 
+              }} />
+              <Text strong>Live Results Integration</Text>
+              <Tag color="blue">Multi-Source Display</Tag>
+            </Space>
+          </Col>
+          <Col>
+            <Space>
+              <Button 
+                type="primary" 
+                icon={<TrophyOutlined />}
+                onClick={handleSetupLiveResults}
+              >
+                Setup Live Results
+              </Button>
+              <Button 
+                icon={<DatabaseOutlined />}
+                onClick={handleOpenLiveResults}
+              >
+                Open Results Display
+              </Button>
             </Space>
           </Col>
         </Row>
