@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, Typography, Button, Row, Col, Statistic, Space, Alert, Modal } from 'antd';
 import { HistoryOutlined, ReloadOutlined } from '@ant-design/icons';
 import { localEntryService } from '../services/localEntryService';
+import { localRunnerService } from '../services/localRunnerService';
 import { eventMetaService } from '../services/eventMetaService';
 
 const { Title, Text, Paragraph } = Typography;
@@ -19,6 +20,12 @@ const EventDayStart: React.FC<EventDayStartProps> = ({ onResume, onStartNew }) =
   const dirPref = localEntryService.getSaveDirectoryPreference();
   const meta = eventMetaService.get();
 
+  const handleResume = () => {
+    // Refresh runner database when resuming to ensure latest data
+    localRunnerService.refreshFromStorage();
+    onResume();
+  };
+
   const confirmNew = () => {
     Modal.confirm({
       title: 'Start a new event?',
@@ -27,6 +34,8 @@ const EventDayStart: React.FC<EventDayStartProps> = ({ onResume, onStartNew }) =
       okType: 'danger',
       onOk: () => {
         localEntryService.clearAllEntries();
+        // Refresh runner database when starting new to ensure latest data
+        localRunnerService.refreshFromStorage();
         onStartNew();
       }
     });
@@ -81,7 +90,7 @@ const EventDayStart: React.FC<EventDayStartProps> = ({ onResume, onStartNew }) =
               <Paragraph type="secondary" style={{ marginBottom: 0 }}>
                 Continue with imported entries and current check-in status.
               </Paragraph>
-              <Button type="primary" size="large" onClick={onResume} disabled={total === 0}>
+              <Button type="primary" size="large" onClick={handleResume} disabled={total === 0}>
                 Resume
               </Button>
             </Space>

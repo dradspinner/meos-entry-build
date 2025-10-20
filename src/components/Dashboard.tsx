@@ -6,7 +6,10 @@ import {
   ToolOutlined,
   FileTextOutlined,
   UsergroupAddOutlined,
-  TrophyOutlined
+  TrophyOutlined,
+  DatabaseOutlined,
+  ImportOutlined,
+  SafetyOutlined
 } from '@ant-design/icons';
 
 const { Title, Paragraph } = Typography;
@@ -20,6 +23,10 @@ const Dashboard: React.FC<DashboardProps> = ({
   onNavigateToEventBuilder, 
   onNavigateToEventDayOps 
 }) => {
+  const handleOpenDatabaseManager = () => {
+    const dbManagerUrl = window.location.origin + '/database_manager.html';
+    window.open(dbManagerUrl, 'database-manager', 'width=1000,height=800,scrollbars=yes,resizable=yes');
+  };
 
   return (
     <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
@@ -153,6 +160,67 @@ const Dashboard: React.FC<DashboardProps> = ({
                 Available in Phase 2
               </Paragraph>
             </div>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Database Management Section */}
+      <Row gutter={[24, 24]} style={{ marginTop: '40px' }}>
+        <Col xs={24}>
+          <Card 
+            title={
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <DatabaseOutlined style={{ marginRight: '8px', color: '#52c41a' }} />
+                <span>Runner Database Management</span>
+              </div>
+            }
+            style={{ background: '#f6ffed', border: '1px solid #b7eb8f' }}
+          >
+            <Row gutter={16}>
+              <Col xs={24} md={16}>
+                <Paragraph>
+                  Manage your runner database with recovery, import, and backup tools. 
+                  Import from MeOS XML backups, recover from localStorage, or export your data.
+                </Paragraph>
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                    <ImportOutlined style={{ marginRight: '8px', color: '#52c41a' }} />
+                    <span>XML Import from MeOS</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                    <SafetyOutlined style={{ marginRight: '8px', color: '#52c41a' }} />
+                    <span>Recovery from localStorage</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <FileTextOutlined style={{ marginRight: '8px', color: '#52c41a' }} />
+                    <span>Database Export & Backup</span>
+                  </div>
+                </div>
+              </Col>
+              <Col xs={24} md={8} style={{ textAlign: 'center' }}>
+                <Button 
+                  type="primary"
+                  size="large"
+                  icon={<DatabaseOutlined />}
+                  onClick={handleOpenDatabaseManager}
+                  style={{ 
+                    height: '48px', 
+                    fontSize: '16px',
+                    background: '#52c41a',
+                    borderColor: '#52c41a'
+                  }}
+                >
+                  Open Database Manager
+                </Button>
+                <Paragraph style={{ 
+                  marginTop: '8px', 
+                  fontSize: '12px', 
+                  color: '#666' 
+                }}>
+                  Opens in new window
+                </Paragraph>
+              </Col>
+            </Row>
           </Card>
         </Col>
       </Row>

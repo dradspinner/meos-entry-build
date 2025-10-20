@@ -175,119 +175,124 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
       onCancel={onClose}
       footer={null}
       width={720}
-      destroyOnClose
->
-      <Alert 
-        type={readerStatus.connected ? 'success' : 'warning'} 
-        showIcon 
-        style={{ marginBottom: 12 }}
-        message={readerStatus.connected ? 'Card Reader Connected' : 'Card Reader Disconnected'}
-        action={!readerStatus.connected ? (
-          <Button size="small" onClick={async ()=>{try{await sportIdentService.connect(); setReaderStatus(sportIdentService.getStatus());}catch{}}}>
-            Connect
-          </Button>
-        ) : undefined}
-      />
-      <Form form={form} layout="vertical">
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item 
-              label="First Name" 
-              name="firstName" 
-              rules={[{
-                validator: async (_, value) => {
-                  const natNum = parseInt((entry?.nationality as any) || '0', 10);
-                  if (!natNum || natNum <= 1) {
-                    if (!value || `${value}`.trim() === '') {
-                      return Promise.reject(new Error('First Name is required unless Nationality > 1'));
+      destroyOnHidden
+      forceRender
+      key={entry?.id || 'new'}
+    >
+      <>
+        <Alert 
+          type={readerStatus.connected ? 'success' : 'warning'} 
+          showIcon 
+          style={{ marginBottom: 12 }}
+          message={readerStatus.connected ? 'Card Reader Connected' : 'Card Reader Disconnected'}
+          action={!readerStatus.connected ? (
+            <Button size="small" onClick={async ()=>{try{await sportIdentService.connect(); setReaderStatus(sportIdentService.getStatus());}catch{}}}>
+              Connect
+            </Button>
+          ) : undefined}
+        />
+        {open && <Form form={form} layout="vertical" key={`form-${entry?.id || 'new'}`}>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item 
+                label="First Name" 
+                name="firstName" 
+                rules={[{
+                  validator: async (_, value) => {
+                    const natNum = parseInt((entry?.nationality as any) || '0', 10);
+                    if (!natNum || natNum <= 1) {
+                      if (!value || `${value}`.trim() === '') {
+                        return Promise.reject(new Error('First Name is required unless Nationality > 1'));
+                      }
                     }
+                    return Promise.resolve();
                   }
-                  return Promise.resolve();
-                }
-              }]}
-            >
-              <Input />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item label="Last Name" name="lastName" rules={[{ required: true }]}>
-              <Input />
-            </Form.Item>
-          </Col>
-        </Row>
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item label="Club" name="club" rules={[{ required: true }]}>
-              <Input />
-            </Form.Item>
-          </Col>
-          <Col span={6}>
-            <Form.Item label="Birth Year" name="birthYear">
-              <Input />
-            </Form.Item>
-          </Col>
-          <Col span={6}>
-            <Form.Item label="Sex" name="sex">
-              <Select allowClear>
-                <Option value="M">M</Option>
-                <Option value="F">F</Option>
-              </Select>
-            </Form.Item>
-          </Col>
-        </Row>
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item label="Class" name="classId" rules={[{ required: true }]}>
-              <Select showSearch optionFilterProp="children">
-                {classes.map(c => (
-                  <Option key={c.id} value={c.id}>{c.name}</Option>
-                ))}
-              </Select>
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item label="Card Number" name="cardNumber" rules={[{ required: true }]}>
-              <Input addonAfter={<IdcardOutlined onClick={() => { if (lastCard) { form.setFieldsValue({ cardNumber: lastCard }); } else { applyLastCard(); } }} />} />
-            </Form.Item>
-          </Col>
-        </Row>
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item label="Phone" name="phone">
-              <Input />
-            </Form.Item>
-          </Col>
-        </Row>
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item 
-              label="Birth Year" 
-              name="birthYear"
-              rules={[{
-                validator: async (_, value) => {
-                  const natNum = parseInt((entry?.nationality as any) || '0', 10);
-                  if (!natNum || natNum <= 1) {
-                    if (!value || `${value}`.trim() === '') {
-                      return Promise.reject(new Error('Birth Year is required unless Nationality > 1'));
+                }]}
+              >
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Last Name" name="lastName" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="Club" name="club" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item label="Birth Year" name="birthYear">
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item label="Sex" name="sex">
+                <Select allowClear>
+                  <Option value="M">M</Option>
+                  <Option value="F">F</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="Class" name="classId" rules={[{ required: true }]}>
+                <Select showSearch optionFilterProp="children">
+                  {classes.map(c => (
+                    <Option key={c.id} value={c.id}>{c.name}</Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Card Number" name="cardNumber" rules={[{ required: true }]}>
+                <Input addonAfter={<IdcardOutlined onClick={() => { if (lastCard) { form.setFieldsValue({ cardNumber: lastCard }); } else { applyLastCard(); } }} />} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="Phone" name="phone">
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item 
+                label="Birth Year" 
+                name="birthYear"
+                rules={[{
+                  validator: async (_, value) => {
+                    const natNum = parseInt((entry?.nationality as any) || '0', 10);
+                    if (!natNum || natNum <= 1) {
+                      if (!value || `${value}`.trim() === '') {
+                        return Promise.reject(new Error('Birth Year is required unless Nationality > 1'));
+                      }
                     }
+                    return Promise.resolve();
                   }
-                  return Promise.resolve();
-                }
-              }]}
-            >
-              <Input />
-            </Form.Item>
-          </Col>
+                }]}
+              >
+                <Input />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>}
+          
+        <Row justify="end" style={{ marginTop: 16 }}>
+          <Space>
+            <Button onClick={handleSave} loading={saving}>Save</Button>
+            <Button type="primary" icon={<LoginOutlined />} onClick={handleCheckIn}>
+              Check In
+            </Button>
+          </Space>
         </Row>
-      </Form>
-      <Row justify="end">
-        <Space>
-          <Button onClick={handleSave} loading={saving}>Save</Button>
-          <Button type="primary" icon={<LoginOutlined />} onClick={handleCheckIn}>
-            Check In
-          </Button>
-        </Space>
-      </Row>
+      </>
     </Modal>
   );
 };

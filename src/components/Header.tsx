@@ -1,5 +1,7 @@
 import React from 'react';
-import { Layout } from 'antd';
+import { Layout, Dropdown, Button, message } from 'antd';
+import { SettingOutlined, DatabaseOutlined } from '@ant-design/icons';
+import type { MenuProps } from 'antd';
 import logoImage from '../assets/dvoa_logo.png';
 
 const { Header: AntHeader } = Layout;
@@ -9,6 +11,22 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ title = 'MeOS Event Management System' }) => {
+  const handleOpenDatabaseManager = () => {
+    // Open database manager in a new window/tab
+    const dbManagerUrl = window.location.origin + '/database_manager.html';
+    window.open(dbManagerUrl, 'database-manager', 'width=1000,height=800,scrollbars=yes,resizable=yes');
+    message.info('Opening Database Manager...');
+  };
+
+  const toolsMenuItems: MenuProps['items'] = [
+    {
+      key: 'database-manager',
+      label: 'Runner Database Manager',
+      icon: <DatabaseOutlined />,
+      onClick: handleOpenDatabaseManager,
+    },
+  ];
+
   return (
     <AntHeader style={{ 
       background: '#fff', 
@@ -34,13 +52,26 @@ const Header: React.FC<HeaderProps> = ({ title = 'MeOS Event Management System' 
           {title}
         </h1>
       </div>
-      <div style={{ 
-        fontSize: '14px', 
-        color: '#666',
-        textAlign: 'right'
-      }}>
-        <div>Delaware Valley Orienteering Association</div>
-        <div>Event Management System</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <Dropdown menu={{ items: toolsMenuItems }} placement="bottomRight">
+          <Button 
+            icon={<SettingOutlined />} 
+            type="text" 
+            size="large"
+            title="Tools & Settings"
+          >
+            Tools
+          </Button>
+        </Dropdown>
+        
+        <div style={{ 
+          fontSize: '14px', 
+          color: '#666',
+          textAlign: 'right'
+        }}>
+          <div>Delaware Valley Orienteering Association</div>
+          <div>Event Management System</div>
+        </div>
       </div>
     </AntHeader>
   );

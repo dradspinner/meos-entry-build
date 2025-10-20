@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Card, Row, Col, Button, Typography, Statistic, Table, Input, Tag, Space, Badge, message, Alert } from 'antd';
-import { CheckCircleOutlined, UserAddOutlined, DatabaseOutlined, ArrowLeftOutlined, UsbOutlined, EditOutlined, IdcardOutlined, LoginOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Button, Typography, Statistic, Table, Input, Tag, Space, Badge, message, Alert, Modal } from 'antd';
+import { CheckCircleOutlined, UserAddOutlined, DatabaseOutlined, ArrowLeftOutlined, UsbOutlined, EditOutlined, IdcardOutlined, LoginOutlined, ReloadOutlined, SyncOutlined, DeleteOutlined } from '@ant-design/icons';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
+import { localRunnerService } from '../services/localRunnerService';
 import { eventMetaService } from '../services/eventMetaService';
 import SameDayRegistration from './SameDayRegistration';
 import EntryEditModal from './EntryEditModal';
+import RunnerDatabaseManager from './RunnerDatabaseManager';
 import { sportIdentService, type SICardReadEvent } from '../services/sportIdentService';
 import { meosApi } from '../services/meosApi';
 
@@ -12,13 +14,15 @@ const { Title, Paragraph, Text } = Typography;
 
 interface EventDayHomeProps {
   onBack?: () => void;
+  onBackToMain?: () => void;
 }
 
-const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
+const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => {
   const [showSameDay, setShowSameDay] = useState(false);
   const [entries, setEntries] = useState<LocalEntry[]>(localEntryService.getAllEntries());
   const [filter, setFilter] = useState('');
   const [editOpen, setEditOpen] = useState(false);
+  const [runnerDbOpen, setRunnerDbOpen] = useState(false);
   const [selected, setSelected] = useState<LocalEntry | null>(null);
   const [lastCard, setLastCard] = useState<string | null>(null);
   const [readerStatus, setReaderStatus] = useState(sportIdentService.getStatus());
@@ -32,15 +36,16 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
   const refresh = () => setEntries(localEntryService.getAllEntries());
 
   React.useEffect(() => {
-    // Initial MeOS status check
+    // Initial MeOS status check - only run once on mount
     checkMeos();
     const cb = (ev: SICardReadEvent) => {
       setReaderStatus(sportIdentService.getStatus());
       if (ev.type === 'card_read' && ev.card) {
         const cnum = ev.card.cardNumber.toString();
         setLastCard(cnum);
-        // auto-match pending entry by card
-        const match = entries.find(e => e.status === 'pending' && e.cardNumber === cnum);
+        // auto-match pending entry by card - get fresh entries
+        const currentEntries = localEntryService.getAllEntries();
+        const match = currentEntries.find(e => e.status === 'pending' && e.cardNumber === cnum);
         if (match) {
           setSelected(match);
           setEditOpen(true);
@@ -53,7 +58,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
     sportIdentService.addCallback(cb);
     const interval = setInterval(() => setReaderStatus(sportIdentService.getStatus()), 2000);
     return () => { sportIdentService.removeCallback(cb); clearInterval(interval); };
-  }, [entries]);
+  }, []); // Remove entries dependency to prevent infinite loop
 
   // Auto-verify in MeOS once when there are checked-in entries
   React.useEffect(() => {
@@ -85,7 +90,19 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
   const checkedIn = entries.filter(e => e.status === 'checked-in').length;
   const pending = totalEntries - checkedIn;
   const needsRental = entries.filter(e => e.issues?.needsRentalCard).length;
-  const meta = eventMetaService.get();
+  
+  // Get or set default event metadata
+  const [meta, setMeta] = React.useState(eventMetaService.get());
+  React.useEffect(() => {
+    let currentMeta = eventMetaService.get();
+    
+    if (!currentMeta) {
+      const defaultMeta = { name: 'DVOA Event', date: new Date().toISOString().split('T')[0] };
+      eventMetaService.set(defaultMeta);
+      currentMeta = defaultMeta;
+    }
+    setMeta(currentMeta);
+  }, []);
 
   const checkMeos = async () => {
     try {
@@ -99,6 +116,13 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
     }
   };
 
+
+  const refreshRunnerDatabase = () => {
+    localRunnerService.refreshFromStorage();
+    const stats = localRunnerService.getStats();
+    message.success(`Runner database refreshed: ${stats.total} runners loaded`);
+  };
+
   return (
     <div style={{ padding: '24px', maxWidth: 1200, margin: '0 auto' }}>
       {onBack && (
@@ -110,7 +134,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
       )}
 
       <Title level={2} style={{ marginBottom: 8 }}>
-        {`Event Day Dashboard - ${meta?.name || ''} || ${meta?.date || ''}`}
+        Event Day Dashboard - {meta?.name || 'DVOA Event'} - {meta?.date || new Date().toISOString().split('T')[0]}
       </Title>
       <Text type="secondary">Check-in pre-registered runners or register new entries</Text>
 
@@ -122,6 +146,14 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
               text={meosConnected === null ? 'MeOS API: Unknown' : meosConnected ? 'MeOS API: Connected' : 'MeOS API: Disconnected'}
             />
             <Button size="small" loading={checkingMeos} onClick={checkMeos}>Refresh</Button>
+            <Button size="small" onClick={() => setRunnerDbOpen(true)}>Runner Database</Button>
+            <Button size="small" icon={<SyncOutlined />} onClick={refreshRunnerDatabase} title="Refresh runner database from localStorage">Refresh Runners ({localRunnerService.getStats().total})</Button>
+          </Space>
+        </Col>
+        <Col>
+          <Space>
+            {onBack && <Button size="small" onClick={onBack}>Back</Button>}
+            {onBackToMain && <Button size="small" onClick={onBackToMain}>Back to Main</Button>}
           </Space>
         </Col>
       </Row>
@@ -251,6 +283,30 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
           { title: 'Actions', key: 'actions', render: (_: any, r: LocalEntry) => (
             <Space>
               <Button size="small" icon={<EditOutlined />} onClick={()=>{setSelected(r); setEditOpen(true);}}>Edit</Button>
+              <Button 
+                size="small" 
+                danger 
+                icon={<DeleteOutlined />} 
+                onClick={() => {
+                  Modal.confirm({
+                    title: `Delete ${r.name.first} ${r.name.last}?`,
+                    content: `This will permanently remove this entry from the system.`,
+                    okText: 'Delete',
+                    okType: 'danger',
+                    onOk: () => {
+                      const success = localEntryService.deleteEntry(r.id);
+                      if (success) {
+                        message.success(`Deleted ${r.name.first} ${r.name.last}`);
+                        refresh();
+                      } else {
+                        message.error('Failed to delete entry');
+                      }
+                    }
+                  });
+                }}
+              >
+                Delete
+              </Button>
               {r.status !== 'checked-in' ? (
                 <>
                   <Button size="small" icon={<IdcardOutlined />} onClick={()=>{
@@ -297,7 +353,20 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack }) => {
       {/* Same-Day Registration Modal */}
       <SameDayRegistration 
         visible={showSameDay} 
-        onClose={()=>{setShowSameDay(false); refresh();}}
+        onClose={() => {
+          setShowSameDay(false); 
+          refresh();
+        }}
+        onRegistrationComplete={(entry, cardNumber) => {
+          setShowSameDay(false);
+          refresh();
+        }}
+      />
+
+      {/* Runner Database Manager */}
+      <RunnerDatabaseManager 
+        open={runnerDbOpen}
+        onClose={()=> setRunnerDbOpen(false)}
       />
     </div>
   );

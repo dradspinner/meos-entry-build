@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Card, Typography, Steps, Alert, Button, Space } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Card, Typography, Steps, Alert, Button, Space, message } from 'antd';
 import { 
   UploadOutlined, 
   CheckCircleOutlined, 
@@ -10,7 +10,9 @@ import {
   ArrowLeftOutlined
 } from '@ant-design/icons';
 import JotformImport from './JotformImport';
+import EntryReviewAndFix from './EntryReviewAndFix';
 import { localEntryService } from '../services/localEntryService';
+import { runnerCloudSyncService } from '../services/runnerCloudSyncService';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -22,10 +24,13 @@ interface EventDayWorkflowProps {
 const EventDayWorkflow: React.FC<EventDayWorkflowProps> = ({ onBack, onOpenDayDashboard }) => {
   const [currentStep, setCurrentStep] = useState(0);
 
+  useEffect(() => {
+    // Component initialization
+  }, []);
+
   const steps = [
     { title: 'Import Entries', description: 'Load OE12 from EventReg', icon: <UploadOutlined /> },
     { title: 'Review & Fix', description: 'Validate against runner DB', icon: <SolutionOutlined /> },
-    { title: 'Check-In Setup', description: 'Configure SI readers', icon: <CreditCardOutlined /> },
     { title: 'Event Operations', description: 'Check-in & same-day reg', icon: <UserAddOutlined /> },
     { title: 'MeOS Sync', description: 'Real-time entry sync', icon: <DatabaseOutlined /> }
   ];
@@ -72,79 +77,34 @@ const EventDayWorkflow: React.FC<EventDayWorkflowProps> = ({ onBack, onOpenDayDa
 
       case 1:
         return (
-          <Card title="Step 2: Review & Fix Entry Data">
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="Check all runner information against DVOA Runner Database"
-              description={
-                <div>
-                  <Paragraph>
-                    The system will cross-reference each entry with the DVOA Runner Database.
-                    You'll have options to:
-                  </Paragraph>
-                  <ul style={{ marginLeft: 16, marginBottom: 0 }}>
-                    <li><strong>Option 1:</strong> Fix entry(ies) from database (update entry with database info)</li>
-                    <li><strong>Option 2:</strong> Update database with entry details (learn new info)</li>
-                  </ul>
-                  <Paragraph style={{ marginTop: 8, marginBottom: 0 }}>
-                    All fixes can be applied to ANY entry attribute (First name, Club, etc.)
-                  </Paragraph>
-                </div>
-              }
-            />
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              <Text type="secondary">Entry validation and database cross-reference tool coming soon...</Text>
-              <div style={{ marginTop: 16 }}>
-                <Space>
-                  <Button onClick={() => setCurrentStep(0)}>Back</Button>
-                  <Button type="primary" onClick={() => setCurrentStep(2)}>
-                    Continue to Check-In Setup
-                  </Button>
-                </Space>
-              </div>
+          <div>
+            <EntryReviewAndFix />
+            <div style={{ textAlign: 'center', marginTop: 16 }}>
+              <Space>
+                <Button onClick={() => setCurrentStep(0)}>Back</Button>
+                <Button 
+                  type="primary"
+                  onClick={() => {
+                    const hasEntries = localEntryService.getAllEntries().length > 0;
+                    if (!hasEntries) {
+                      alert('No entries found. Please import entries before opening the Event Day Dashboard.');
+                      setCurrentStep(0);
+                      return;
+                    }
+                    if (onOpenDayDashboard) onOpenDayDashboard();
+                  }}
+                  disabled={localEntryService.getAllEntries().length === 0}
+                >
+                  Open Event Day Dashboard
+                </Button>
+              </Space>
             </div>
-          </Card>
+          </div>
         );
 
       case 2:
         return (
-          <Card title="Step 3: Configure Check-In System">
-            <Alert
-              type="success"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="Set up SI Card Readers for Event Day Operations"
-              description={
-                <div>
-                  <Paragraph>
-                    Configure your SportIdent card readers for both check-in workflows:
-                  </Paragraph>
-                  <ul style={{ marginLeft: 16, marginBottom: 0 }}>
-                    <li><strong>Runners with own e-punch:</strong> Punch to check-in and display entry info</li>
-                    <li><strong>Runners with hired e-punch:</strong> Search by name, assign rental card, confirm by punch</li>
-                  </ul>
-                </div>
-              }
-            />
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              <Text type="secondary">SI Reader configuration interface coming soon...</Text>
-              <div style={{ marginTop: 16 }}>
-                <Space>
-                  <Button onClick={() => setCurrentStep(1)}>Back</Button>
-                  <Button type="primary" onClick={() => setCurrentStep(3)}>
-                    Start Event Operations
-                  </Button>
-                </Space>
-              </div>
-            </div>
-          </Card>
-        );
-
-      case 3:
-        return (
-          <Card title="Step 4: Event Day Check-In & Registration">
+          <Card title="Step 3: Event Day Check-In & Registration">
             <Alert
               type="info"
               showIcon
@@ -171,6 +131,58 @@ const EventDayWorkflow: React.FC<EventDayWorkflowProps> = ({ onBack, onOpenDayDa
             />
             <div style={{ textAlign: 'center', padding: '40px' }}>
               <Text type="secondary">Check-in and registration interface coming soon...</Text>
+              <div style={{ marginTop: 16 }}>
+                <Space>
+                  <Button onClick={() => setCurrentStep(1)}>Back</Button>
+                  <Button 
+                    type="primary"
+                    onClick={() => {
+                      const hasEntries = localEntryService.getAllEntries().length > 0;
+                      if (!hasEntries) {
+                        alert('No entries found. Please import entries before opening the Event Day Dashboard.');
+                        setCurrentStep(0);
+                        return;
+                      }
+                      if (onOpenDayDashboard) onOpenDayDashboard();
+                    }}
+                    disabled={localEntryService.getAllEntries().length === 0}
+                  >
+                    Open Event Day Dashboard
+                  </Button>
+                </Space>
+              </div>
+            </div>
+          </Card>
+        );
+
+      case 3:
+        return (
+          <Card title="Step 4: Real-Time MeOS Integration">
+            <Alert
+              type="success"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="Automatic Entry Sync with MeOS"
+              description={
+                <div>
+                  <Paragraph>
+                    After each runner checks in for a course, their entry data will be passed to MeOS 
+                    in real-time using the REST API.
+                  </Paragraph>
+                  <Paragraph>
+                    <strong>Benefits:</strong>
+                  </Paragraph>
+                  <ul style={{ marginLeft: 16, marginBottom: 0 }}>
+                    <li>Limits runners in MeOS to only those who checked in</li>
+                    <li>Easier to use radio control for the start</li>
+                    <li>Better tracking of runners in the forest for each runner/course combination</li>
+                    <li>Enables multiple course runs per participant</li>
+                  </ul>
+                </div>
+              }
+            />
+            <div style={{ textAlign: 'center', padding: '40px' }}>
+              <Text type="secondary">Real-time MeOS API integration coming soon...</Text>
               <div style={{ marginTop: 16 }}>
                 <Space>
                   <Button onClick={() => setCurrentStep(2)}>Back</Button>
@@ -223,7 +235,9 @@ const EventDayWorkflow: React.FC<EventDayWorkflowProps> = ({ onBack, onOpenDayDa
                         setCurrentStep(0);
                         return;
                       }
-                      onOpenDayDashboard && onOpenDayDashboard();
+                      if (onOpenDayDashboard) {
+                        onOpenDayDashboard();
+                      }
                     }}
                     disabled={localEntryService.getAllEntries().length === 0}
                   >

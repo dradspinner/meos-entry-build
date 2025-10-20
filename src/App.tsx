@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout, ConfigProvider } from 'antd';
+import { localRunnerService } from './services/localRunnerService';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import EventBuilder from './components/EventBuilder';
@@ -11,6 +12,13 @@ type CurrentView = 'dashboard' | 'eventBuilder' | 'eventDayOps' | 'eventDayDashb
 
 function App() {
   const [currentView, setCurrentView] = useState<CurrentView>('dashboard');
+
+  // Refresh runner database on app startup to ensure latest data
+  useEffect(() => {
+    localRunnerService.refreshFromStorage();
+    const stats = localRunnerService.getStats();
+    console.log(`[App] Initial runner database refresh: ${stats.total} runners loaded`);
+  }, []);
 
   const renderCurrentView = () => {
     switch (currentView) {

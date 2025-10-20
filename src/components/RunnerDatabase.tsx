@@ -57,6 +57,7 @@ export const RunnerDatabase: React.FC = () => {
   const [addRunnerVisible, setAddRunnerVisible] = useState(false);
   const [editingRunner, setEditingRunner] = useState<LocalRunner | null>(null);
   const [editRunnerVisible, setEditRunnerVisible] = useState(false);
+  const [editForm] = Form.useForm();
 
   // Load data on component mount
   useEffect(() => {
@@ -687,6 +688,7 @@ export const RunnerDatabase: React.FC = () => {
       <Modal
         title="Edit Runner"
         open={editRunnerVisible}
+        destroyOnClose
         onCancel={() => {
           setEditRunnerVisible(false);
           setEditingRunner(null);
@@ -696,6 +698,8 @@ export const RunnerDatabase: React.FC = () => {
       >
         {editingRunner && (
           <Form
+            key={editingRunner.id}
+            form={editForm}
             layout="vertical"
             initialValues={{
               firstName: editingRunner.name.first,
@@ -709,22 +713,21 @@ export const RunnerDatabase: React.FC = () => {
               email: editingRunner.email
             }}
             onFinish={(values) => {
-              const updatedRunner = {
-                ...editingRunner,
+              const updates = {
                 name: {
-                  first: values.firstName || '',
-                  last: values.lastName || ''
+                  first: (values.firstName || '').toString().trim(),
+                  last: (values.lastName || '').toString().trim(),
                 },
-                club: values.club || '',
-                birthYear: values.birthYear,
-                sex: values.sex,
-                cardNumber: values.cardNumber,
-                nationality: values.nationality || '',
-                phone: values.phone || '',
-                email: values.email || ''
-              };
-              
-              localRunnerService.updateRunner(editingRunner.id, updatedRunner);
+                club: (values.club || '').toString().trim(),
+                birthYear: values.birthYear !== undefined && values.birthYear !== '' ? parseInt(values.birthYear as any, 10) : undefined,
+                sex: values.sex as 'M' | 'F' | undefined,
+                cardNumber: values.cardNumber !== undefined && values.cardNumber !== '' ? parseInt(values.cardNumber as any, 10) : undefined,
+                nationality: (values.nationality || '').toString().trim(),
+                phone: (values.phone || '').toString().trim(),
+                email: (values.email || '').toString().trim(),
+              } as Partial<Omit<LocalRunner, 'id' | 'lastUsed' | 'timesUsed'>>;
+
+              localRunnerService.updateRunner(editingRunner.id, updates);
               loadRunners();
               setEditRunnerVisible(false);
               setEditingRunner(null);

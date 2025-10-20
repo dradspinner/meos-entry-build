@@ -12,10 +12,11 @@ function createWindow() {
     minWidth: 1200,
     minHeight: 800,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      enableRemoteModule: true,
-      webSecurity: false // Allow local file access for development
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      webSecurity: false, // Allow local file access for development
+      preload: path.join(__dirname, 'preload.cjs')
     },
     icon: path.join(__dirname, 'icon.png'),
     show: false, // Don't show until ready
@@ -33,10 +34,10 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     
-    // Open DevTools in development
-    if (isDev) {
-      mainWindow.webContents.openDevTools();
-    }
+    // DevTools can be opened manually via menu: View > Toggle Developer Tools
+    // if (isDev) {
+    //   mainWindow.webContents.openDevTools();
+    // }
   });
 
   // Handle window closed
@@ -267,6 +268,60 @@ ipcMain.handle('show-save-dialog', async (event, options) => {
 ipcMain.handle('show-open-dialog', async (event, options) => {
   const result = await dialog.showOpenDialog(mainWindow, options);
   return result;
+});
+
+// Runner database cloud sync handlers
+ipcMain.handle('save-runner-database', async (event, filePath, content) => {
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
+    
+    // Ensure directory exists
+    const dir = path.dirname(filePath);
+    await fs.mkdir(dir, { recursive: true });
+    
+    await fs.writeFile(filePath, content, 'utf8');
+    console.log(`[Electron] Successfully saved runner database to: ${filePath}`);
+    return true;
+  } catch (error) {
+    console.error(`[Electron] Failed to save runner database:`, error);
+    return false;
+  }
+});
+
+ipcMain.handle('load-runner-database', async (event, filePath) => {
+  try {
+    const fs = require('fs').promises;
+    const content = await fs.readFile(filePath, 'utf8');
+    console.log(`[Electron] Successfully loaded runner database from: ${filePath}`);
+    return content;
+  } catch (error) {
+    console.error(`[Electron] Failed to load runner database:`, error);
+    return null;
+  }
+});
+
+ipcMain.handle('choose-runner-database-path', async (event) => {
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Choose Runner Database Location',
+      defaultPath: 'runner_database.json',
+      filters: [
+        { name: 'JSON Files', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] }
+      ],
+      properties: ['createDirectory']
+    });
+    
+    if (!result.canceled) {
+      console.log(`[Electron] User chose runner database path: ${result.filePath}`);
+      return result.filePath;
+    }
+    return null;
+  } catch (error) {
+    console.error(`[Electron] Error choosing runner database path:`, error);
+    return null;
+  }
 });
 
 // Handle app updates (future enhancement)

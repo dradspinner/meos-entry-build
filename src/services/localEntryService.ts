@@ -541,6 +541,37 @@ class LocalEntryService {
   }
 
   /**
+   * Attempt to set working directory from a File object (Electron/Chromium may expose full path)
+   */
+  async setWorkingDirectoryFromSelectedFile(file: File): Promise<boolean> {
+    try {
+      if (!file) return false;
+      const anyFile: any = file as any;
+      const fullPath: string | undefined = anyFile.path || anyFile.mozFullPath || undefined;
+      if (fullPath && typeof fullPath === 'string') {
+        // Derive directory path from file path
+        const dirPath = fullPath.replace(/[\\\/]([^\\\/]+)$/,'');
+        // Store path for Firefox/electron fallback flows
+        localStorage.setItem('meos_working_directory_path', dirPath);
+        const dirName = dirPath.split(/[\\\/]/).pop() || dirPath;
+        this.setSaveDirectoryPreference(dirName);
+        console.log(`[LocalStorage] Set working directory from file path: ${dirPath}`);
+        return true;
+      }
+
+      // If no path is available, fall back to naming preference by file base name
+      const baseName = (file.name || '').replace(/\.[^/.]+$/, '');
+      if (baseName) {
+        this.setSaveDirectoryPreference(`${baseName} - MeOS Event`);
+      }
+      return false;
+    } catch (error) {
+      console.warn('Failed to set working directory from selected file:', error);
+      return false;
+    }
+  }
+
+  /**
    * Fallback for browsers without File System Access API (like Firefox)
    */
   private setWorkingDirectoryFallback(): boolean {
@@ -682,16 +713,20 @@ class LocalEntryService {
   /**
    * Auto-detect CSV format and import entries
    */
-  async importFromCsv(csvEntries: any[], fileName?: string): Promise<{ entries: LocalEntry[], newCount: number, updatedCount: number, format: string }> {
+  async importFromCsv(
+    csvEntries: any[], 
+    fileName?: string,
+    onProgress?: (processed: number, total: number) => void
+  ): Promise<{ entries: LocalEntry[], newCount: number, updatedCount: number, format: string }> {
     // Auto-detect format based on headers
     const format = this.detectCsvFormat(csvEntries);
     console.log(`[CSV Import] Detected format: ${format}`);
     
     let result;
     if (format === 'OE12') {
-      result = await this.importFromOE12(csvEntries, fileName);
+      result = await this.importFromOE12(csvEntries, fileName, onProgress);
     } else {
-      result = await this.importFromJotform(csvEntries, fileName);
+      result = await this.importFromJotform(csvEntries, fileName, onProgress);
     }
     
     return { ...result, format };
@@ -733,7 +768,11 @@ class LocalEntryService {
   /**
    * Import entries from OE12 CSV data (EventReg format)
    */
-  async importFromOE12(csvEntries: any[], fileName?: string): Promise<{ entries: LocalEntry[], newCount: number, updatedCount: number }> {
+  async importFromOE12(
+    csvEntries: any[], 
+    fileName?: string,
+    onProgress?: (processed: number, total: number) => void
+  ): Promise<{ entries: LocalEntry[], newCount: number, updatedCount: number }> {
     const processedEntries: LocalEntry[] = [];
     let newCount = 0;
     let updatedCount = 0;
@@ -748,6 +787,7 @@ class LocalEntryService {
       this.setSaveDirectoryPreference(directoryName);
     }
     
+    let i = 0;
     for (const csvEntry of csvEntries) {
       // Extract class information from OE12 CSV
       const csvClassName = csvEntry['Short'] || csvEntry['Long'] || csvEntry['Entry class (short)'] || csvEntry['Entry class (long)'] || '';
@@ -827,6 +867,15 @@ class LocalEntryService {
       } else {
         updatedCount++;
       }
+
+      i++;
+      if (onProgress) {
+        try { onProgress(i, csvEntries.length); } catch {}
+      }
+      // Yield to UI every 10 items
+      if (i % 10 === 0) {
+        await new Promise(res => setTimeout(res, 0));
+      }
     }
     
     // Automatically learn from imported entries to build master runner database
@@ -846,7 +895,11 @@ class LocalEntryService {
   /**
    * Import entries from CSV data (Jotform format)
    */
-  async importFromJotform(csvEntries: any[], fileName?: string): Promise<{ entries: LocalEntry[], newCount: number, updatedCount: number }> {
+  async importFromJotform(
+    csvEntries: any[], 
+    fileName?: string,
+    onProgress?: (processed: number, total: number) => void
+  ): Promise<{ entries: LocalEntry[], newCount: number, updatedCount: number }> {
     const processedEntries: LocalEntry[] = [];
     let newCount = 0;
     let updatedCount = 0;
@@ -861,6 +914,7 @@ class LocalEntryService {
       this.setSaveDirectoryPreference(directoryName);
     }
     
+    let i = 0;
     for (const csvEntry of csvEntries) {
       // Extract class information from CSV - handle both formats
       const csvClassName = csvEntry['Short'] || csvEntry['Long'] || csvEntry.short || csvEntry.long || '';
@@ -934,6 +988,15 @@ class LocalEntryService {
         newCount++;
       } else {
         updatedCount++;
+      }
+
+      i++;
+      if (onProgress) {
+        try { onProgress(i, csvEntries.length); } catch {}
+      }
+      // Yield to UI every 10 items
+      if (i % 10 === 0) {
+        await new Promise(res => setTimeout(res, 0));
       }
     }
     
@@ -1166,6 +1229,27 @@ class LocalEntryService {
     };
     
     const dataStr = JSON.stringify(exportData, null, 2);
+
+    // Electron: save directly to the known working directory (no prompt)
+    try {
+      const isElectron = typeof (window as any).process !== 'undefined' && !!(window as any).process.versions?.electron;
+      const hasNodeRequire = typeof (window as any).require === 'function';
+      const workingDirPath = this.getWorkingDirectoryPath();
+      if (isElectron && hasNodeRequire && workingDirPath) {
+        const path = (window as any).require('path');
+        const { ipcRenderer } = (window as any).require('electron');
+        const fullPath = path.join(workingDirPath, defaultFilename);
+        const result = await ipcRenderer.invoke('save-file', fullPath, dataStr);
+        if (result?.success) {
+          console.log(`[LocalStorage] Exported ${entries.length} entries to ${fullPath} (Electron)`);
+          return;
+        } else if (result?.error) {
+          console.warn('[LocalStorage] Electron save-file failed:', result.error);
+        }
+      }
+    } catch (e) {
+      console.warn('[LocalStorage] Electron direct save unavailable, falling back:', e);
+    }
     
     // Try using File System Access API first (Chrome/Edge)
     if ('showSaveFilePicker' in window) {

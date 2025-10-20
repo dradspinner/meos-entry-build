@@ -105,6 +105,7 @@ const EventDayDashboard: React.FC = () => {
 
   // Card reader state
   const [cardReaderStatus, setCardReaderStatus] = useState(sportIdentService.getStatus());
+  const [meosStatus, setMeosStatus] = useState<'checking' | 'connected' | 'disconnected' | 'error'>('checking');
   const [cardConfirmationVisible, setCardConfirmationVisible] = useState(false);
   const [scannedCard, setScannedCard] = useState<SICard | null>(null);
   const [matchedEntry, setMatchedEntry] = useState<LocalEntry | null>(null);
@@ -122,6 +123,15 @@ const EventDayDashboard: React.FC = () => {
     loadEntries();
     loadMeosClasses();
     loadRollbackPoints(); // Load available rollback points
+    // Test MeOS connectivity on open
+    (async () => {
+      try {
+        const ok = await meosApi.testConnection();
+        setMeosStatus(ok ? 'connected' : 'disconnected');
+      } catch {
+        setMeosStatus('error');
+      }
+    })();
     
     // Clear any previous selections when component mounts
     setSelectedRowKeys([]);
@@ -408,11 +418,15 @@ const EventDayDashboard: React.FC = () => {
   };
   
   // Handle immediate status refresh
-  const handleRefreshStatus = () => {
+  const handleRefreshStatus = async () => {
     meosHiredCardService.refreshCache();
-    message.success('Hired card status refreshed!');
-    
-    // Force re-render by refreshing entries
+    try {
+      const ok = await meosApi.testConnection();
+      setMeosStatus(ok ? 'connected' : 'disconnected');
+    } catch {
+      setMeosStatus('error');
+    }
+    message.success('Status refreshed');
     setTimeout(() => {
       loadEntries();
     }, 100);
@@ -2630,7 +2644,40 @@ const EventDayDashboard: React.FC = () => {
           layout="vertical"
           style={{ marginTop: '16px' }}
         >
-          <Row gutter={16}>
+      {/* Connectivity */}
+      <Card style={{ marginBottom: 16 }}>
+        <Row justify="space-between" align="middle">
+          <Col>
+            <Space>
+              <Tag color={meosStatus === 'connected' ? 'green' : meosStatus === 'checking' ? 'blue' : 'red'}>
+                MeOS API: {meosStatus}
+              </Tag>
+              <Tag color={cardReaderStatus.connected ? 'green' : 'red'}>
+                SI Reader: {cardReaderStatus.connected ? 'connected' : 'disconnected'} {cardReaderStatus.lastCard ? `(last ${cardReaderStatus.lastCard.cardNumber})` : ''}
+              </Tag>
+            </Space>
+          </Col>
+          <Col>
+            <Space>
+              <Button onClick={handleRefreshStatus} icon={<ReloadOutlined />}>Test Now</Button>
+              {!cardReaderStatus.connected && (
+                <Button type="primary" icon={<UsbOutlined />} onClick={async () => {
+                  try {
+                    await sportIdentService.connect();
+                    setCardReaderStatus(sportIdentService.getStatus());
+                    message.success('SI Reader connected');
+                  } catch (e: any) {
+                    message.error(e?.message || 'Failed to connect SI Reader');
+                  }
+                }}>Connect SI Reader</Button>
+              )}
+            </Space>
+          </Col>
+        </Row>
+      </Card>
+
+      <Row gutter={[16, 16]}>
+>
             {/* Personal Information Section */}
             <Col span={24}>
               <Card title="Personal Information" size="small" style={{ marginBottom: '16px' }}>

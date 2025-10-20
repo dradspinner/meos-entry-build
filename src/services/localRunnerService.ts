@@ -20,10 +20,32 @@ export interface LocalRunner {
 
 class LocalRunnerService {
   private readonly STORAGE_KEY = 'local_runner_database';
+  private readonly CLOUD_PATH_KEY = 'runner_database_cloud_path';
+  private readonly DEFAULT_CLOUD_PATH = 'C:\\Users\\drads\\OneDrive\\DVOA\\DVOA MeOS Advanced\\runner_database.json';
   private runners: LocalRunner[] = [];
+  private cloudPath: string;
+  private autoSaveEnabled: boolean = true;
 
   constructor() {
+    // Load cloud path preference
+    this.cloudPath = localStorage.getItem(this.CLOUD_PATH_KEY) || this.DEFAULT_CLOUD_PATH;
     this.loadRunners();
+    
+    // Listen for external localStorage changes (e.g., from database manager)
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', (e) => {
+        if (e.key === this.STORAGE_KEY && e.newValue !== null) {
+          console.log('[LocalRunner] Detected external localStorage change, refreshing...');
+          this.loadRunners();
+        }
+      });
+      
+      // Also listen for custom events (for same-tab updates)
+      window.addEventListener('localRunnerDatabaseUpdate', () => {
+        console.log('[LocalRunner] Detected local database update event, refreshing...');
+        this.loadRunners();
+      });
+    }
   }
 
   /**
@@ -47,11 +69,33 @@ class LocalRunnerService {
   }
 
   /**
-   * Save runners to localStorage
+   * Refresh runners from localStorage (public method to reload data)
+   */
+  refreshFromStorage(): void {
+    console.log(`[LocalRunner] Refreshing runners from localStorage...`);
+    this.loadRunners();
+    console.log(`[LocalRunner] Refresh complete: now have ${this.runners.length} runners`);
+  }
+
+  /**
+   * Save runners to localStorage and cloud file with validation
    */
   private saveRunners(): void {
     try {
+      // Validate runner count before saving
+      if (this.runners.length === 0) {
+        console.warn('[LocalRunner] Warning: Attempting to save empty runner database. This might be a data loss event.');
+      }
+      
+      // Save to localStorage as backup
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.runners));
+      console.log(`[LocalRunner] Saved ${this.runners.length} runners to localStorage`);
+      
+      // Auto-save to cloud if enabled
+      if (this.autoSaveEnabled) {
+        // Additional validation before cloud save
+        this.saveToCloudWithValidation();
+      }
     } catch (error) {
       console.error('[LocalRunner] Error saving runners:', error);
     }
@@ -467,6 +511,304 @@ class LocalRunnerService {
   }
 
   /**
+   * Set cloud sync path
+   */
+  setCloudPath(path: string): void {
+    this.cloudPath = path;
+    localStorage.setItem(this.CLOUD_PATH_KEY, path);
+    console.log(`[LocalRunner] Cloud path updated to: ${path}`);
+  }
+
+  /**
+   * Get current cloud path
+   */
+  getCloudPath(): string {
+    return this.cloudPath;
+  }
+
+  /**
+   * Toggle auto-save to cloud
+   */
+  setAutoSave(enabled: boolean): void {
+    this.autoSaveEnabled = enabled;
+    console.log(`[LocalRunner] Auto-save to cloud: ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Check if auto-save is enabled
+   */
+  isAutoSaveEnabled(): boolean {
+    return this.autoSaveEnabled;
+  }
+
+  /**
+   * Save runners to cloud file
+   */
+  async saveToCloud(): Promise<boolean> {
+    return this.saveToCloudWithValidation();
+  }
+
+  /**
+   * Save runners to cloud file with validation to prevent data loss
+   */
+  private async saveToCloudWithValidation(): Promise<boolean> {
+    try {
+      // Validate before saving
+      const currentCount = this.runners.length;
+      console.log(`[LocalRunner] Preparing to save ${currentCount} runners to cloud`);
+      
+      if (currentCount === 0) {
+        console.error('[LocalRunner] Refusing to save empty database to cloud - potential data loss!');
+        return false;
+      }
+      
+      // Check if running in Electron
+      if (typeof window !== 'undefined' && (window as any).electronAPI) {
+        const exportData = this.exportDatabase();
+        const success = await (window as any).electronAPI.saveRunnerDatabase(this.cloudPath, exportData);
+        if (success) {
+          console.log(`[LocalRunner] Successfully saved ${currentCount} runners to cloud: ${this.cloudPath}`);
+          return true;
+        } else {
+          console.error(`[LocalRunner] Failed to save to cloud: ${this.cloudPath}`);
+          return false;
+        }
+      } else {
+        // Fallback for web version - download file
+        const exportData = this.exportDatabase();
+        const blob = new Blob([exportData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `runner_database_${currentCount}_runners.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        console.log(`[LocalRunner] Downloaded runner database with ${currentCount} runners (web fallback)`);
+        return true;
+      }
+    } catch (error) {
+      console.error('[LocalRunner] Error saving to cloud:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Load runners from cloud file (SAFE VERSION - uses merge to prevent data loss)
+   */
+  async loadFromCloud(): Promise<{ success: boolean, imported: number, updated: number, errors: string[] }> {
+    try {
+      const currentCount = this.runners.length;
+      console.log(`[LocalRunner] Current local database has ${currentCount} runners before cloud load`);
+      
+      // Check if running in Electron
+      if (typeof window !== 'undefined' && (window as any).electronAPI) {
+        const jsonData = await (window as any).electronAPI.loadRunnerDatabase(this.cloudPath);
+        if (jsonData) {
+          // Parse data to check runner count before importing
+          let cloudRunnerCount = 0;
+          try {
+            const data = JSON.parse(jsonData);
+            cloudRunnerCount = data.runners ? data.runners.length : 0;
+          } catch (e) {
+            console.error('[LocalRunner] Failed to parse cloud data:', e);
+          }
+          
+          console.log(`[LocalRunner] Cloud file has ${cloudRunnerCount} runners`);
+          
+          // WARNING: Only use replace mode if cloud has more data or if local is empty
+          const mode = (currentCount === 0 || cloudRunnerCount >= currentCount) ? 'replace' : 'merge';
+          console.log(`[LocalRunner] Using ${mode} mode for cloud load`);
+          
+          if (mode === 'merge' && currentCount > 0) {
+            console.warn(`[LocalRunner] Cloud data has fewer runners (${cloudRunnerCount}) than local (${currentCount}). Using merge to prevent data loss.`);
+          }
+          
+          const result = this.importDatabase(jsonData, mode);
+          console.log(`[LocalRunner] Successfully loaded from cloud: ${this.cloudPath}`);
+          return { success: true, ...result };
+        } else {
+          console.error(`[LocalRunner] Failed to load from cloud: ${this.cloudPath}`);
+          return { success: false, imported: 0, updated: 0, errors: ['Failed to load file'] };
+        }
+      } else {
+        // Web version - use file input
+        return new Promise((resolve) => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.json';
+          input.onchange = (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = (event) => {
+                try {
+                  const jsonData = event.target?.result as string;
+                  // Check cloud runner count for web version too
+                  let cloudRunnerCount = 0;
+                  try {
+                    const data = JSON.parse(jsonData);
+                    cloudRunnerCount = data.runners ? data.runners.length : 0;
+                  } catch (e) {
+                    console.error('[LocalRunner] Failed to parse cloud data:', e);
+                  }
+                  
+                  const mode = (currentCount === 0 || cloudRunnerCount >= currentCount) ? 'replace' : 'merge';
+                  console.log(`[LocalRunner] Using ${mode} mode for web file load`);
+                  
+                  const result = this.importDatabase(jsonData, mode);
+                  console.log('[LocalRunner] Successfully loaded from file (web version)');
+                  resolve({ success: true, ...result });
+                } catch (error) {
+                  resolve({ success: false, imported: 0, updated: 0, errors: [error.toString()] });
+                }
+              };
+              reader.readAsText(file);
+            } else {
+              resolve({ success: false, imported: 0, updated: 0, errors: ['No file selected'] });
+            }
+          };
+          input.click();
+        });
+      }
+    } catch (error) {
+      console.error('[LocalRunner] Error loading from cloud:', error);
+      return { success: false, imported: 0, updated: 0, errors: [error.toString()] };
+    }
+  }
+
+  /**
+   * Choose new cloud path using file picker
+   */
+  async chooseCloudPath(): Promise<string | null> {
+    try {
+      // Check if running in Electron
+      if (typeof window !== 'undefined' && (window as any).electronAPI) {
+        const newPath = await (window as any).electronAPI.chooseRunnerDatabasePath();
+        if (newPath) {
+          this.setCloudPath(newPath);
+          return newPath;
+        }
+      } else {
+        // Web version fallback - use prompt for now
+        const newPath = prompt('Enter cloud sync path (e.g., C:\\Users\\your-user\\OneDrive\\DVOA\\DVOA MeOS Advanced\\runner_database.json):', this.cloudPath);
+        if (newPath && newPath.trim()) {
+          this.setCloudPath(newPath.trim());
+          console.log('[LocalRunner] Cloud path set manually (web version):', newPath);
+          return newPath.trim();
+        }
+      }
+    } catch (error) {
+      console.error('[LocalRunner] Error choosing cloud path:', error);
+    }
+    return null;
+  }
+
+  /**
+   * Get cloud sync status
+   */
+  getCloudSyncStatus(): { path: string, autoSave: boolean, exists: boolean } {
+    return {
+      path: this.cloudPath,
+      autoSave: this.autoSaveEnabled,
+      exists: false // TODO: Check if file exists
+    };
+  }
+
+  /**
+   * Recovery method: restore from localStorage backup if available
+   */
+  recoverFromLocalStorage(): { success: boolean, recovered: number, message: string } {
+    try {
+      const currentCount = this.runners.length;
+      const stored = localStorage.getItem(this.STORAGE_KEY);
+      
+      if (!stored) {
+        return { 
+          success: false, 
+          recovered: 0, 
+          message: 'No localStorage backup found' 
+        };
+      }
+      
+      const backupData = JSON.parse(stored);
+      const backupRunners = backupData.map((runner: any) => ({
+        ...runner,
+        lastUsed: new Date(runner.lastUsed)
+      }));
+      
+      console.log(`[LocalRunner] localStorage backup contains ${backupRunners.length} runners (current: ${currentCount})`);
+      
+      if (backupRunners.length <= currentCount) {
+        return {
+          success: false,
+          recovered: backupRunners.length,
+          message: `localStorage backup has ${backupRunners.length} runners, not more than current ${currentCount}`
+        };
+      }
+      
+      // Restore from backup
+      this.runners = backupRunners;
+      console.log(`[LocalRunner] Successfully restored ${backupRunners.length} runners from localStorage backup`);
+      
+      // Save the recovered data (this will trigger cloud save if enabled)
+      // Temporarily disable auto-save to prevent overwriting cloud with potentially bad data
+      const originalAutoSave = this.autoSaveEnabled;
+      this.autoSaveEnabled = false;
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.runners));
+      this.autoSaveEnabled = originalAutoSave;
+      
+      return {
+        success: true,
+        recovered: backupRunners.length,
+        message: `Successfully recovered ${backupRunners.length} runners from localStorage backup`
+      };
+      
+    } catch (error) {
+      console.error('[LocalRunner] Error during recovery:', error);
+      return {
+        success: false,
+        recovered: 0,
+        message: `Recovery failed: ${error}`
+      };
+    }
+  }
+
+  /**
+   * Get localStorage backup info without loading it
+   */
+  getLocalStorageBackupInfo(): { exists: boolean, runnerCount: number, lastSaved?: Date } {
+    try {
+      const stored = localStorage.getItem(this.STORAGE_KEY);
+      if (!stored) {
+        return { exists: false, runnerCount: 0 };
+      }
+      
+      const backupData = JSON.parse(stored);
+      const runnerCount = Array.isArray(backupData) ? backupData.length : 0;
+      
+      // Try to get the most recent lastUsed as an indicator of when backup was saved
+      let lastSaved: Date | undefined;
+      if (runnerCount > 0) {
+        const dates = backupData
+          .map((r: any) => new Date(r.lastUsed))
+          .sort((a: Date, b: Date) => b.getTime() - a.getTime());
+        lastSaved = dates[0];
+      }
+      
+      return {
+        exists: true,
+        runnerCount,
+        lastSaved
+      };
+    } catch (error) {
+      console.error('[LocalRunner] Error checking localStorage backup:', error);
+      return { exists: false, runnerCount: 0 };
+    }
+  }
+
+  /**
    * Try to populate from MeOS API runner lookup (one-time bulk operation)
    */
   async bulkPopulateFromMeOS(commonNames: string[] = []): Promise<{ found: number, errors: string[] }> {
@@ -561,6 +903,13 @@ class LocalRunnerService {
       totalUsage,
       lastUsed
     };
+  }
+
+  /**
+   * Get current runner count (for debugging)
+   */
+  getCurrentCount(): number {
+    return this.runners.length;
   }
 }
 

@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Runner Database Management & Recovery</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 900px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .warning { background-color: #fff3cd; border-color: #ffeaa7; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .info { background-color: #d1ecf1; border-color: #bee5eb; }
+        button { padding: 12px 24px; margin: 8px; cursor: pointer; font-size: 14px; }
+        .primary { background-color: #007bff; color: white; border: none; border-radius: 4px; }
+        .danger { background-color: #dc3545; color: white; border: none; border-radius: 4px; }
+        pre { background: #f8f9fa; padding: 15px; border-radius: 3px; overflow-x: auto; max-height: 400px; }
+        .runner-count { font-size: 24px; font-weight: bold; color: #28a745; }
+        .step { margin: 10px 0; padding: 10px; border-left: 4px solid #007bff; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏃‍♂️ Runner Database Management & Recovery</h1>
+        <p>This comprehensive tool helps manage, recover, and import runner database data.</p>
+        
+        <div id="currentStatus" class="section info">
+            <h3>Current Status</h3>
+            <p>Checking current runner database...</p>
+        </div>
+        
+        <div id="backupStatus" class="section info">
+            <h3>localStorage Backup Status</h3>
+            <p>Checking localStorage backup...</p>
+        </div>
+        
+        <div id="xmlImportSection" class="section info">
+            <h3>XML Import from MeOS Backup</h3>
+            <p>Import runners from MeOS XML database backup:</p>
+            <input type="file" id="xmlFileInput" accept=".xml" style="margin: 10px 0;" />
+            <div>
+                <button onclick="loadXMLFile()">Load & Parse XML File</button>
+                <button onclick="performXMLImport('merge')" id="xmlMergeBtn" disabled>Merge Import (Safe)</button>
+                <button onclick="performXMLImport('replace')" id="xmlReplaceBtn" disabled style="background-color: #dc3545; color: white;">Replace All (Dangerous)</button>
+            </div>
+            <div id="xmlStatus" style="margin-top: 10px;"></div>
+        </div>
+        
+        <div id="recoveryActions" class="section warning">
+            <h3>Recovery & Management Actions</h3>
+            <button onclick="checkLocalStorage()">Check localStorage Backup</button>
+            <button onclick="recoverFromLocalStorage()">Recover from localStorage</button>
+            <button onclick="exportCurrentData()">Export Current Data</button>
+            <button onclick="showAllRunners()">Show All Current Runners</button>
+            <button onclick="clearAllData()" style="background-color: #dc3545; color: white;">Clear All Data</button>
+        </div>
+        
+        <div id="results" class="section">
+            <h3>Results</h3>
+            <div id="resultContent">Click buttons above to run diagnostics...</div>
+        </div>
+        
+        <div id="runnerList" class="section" style="display: none;">
+            <h3>Runner List</h3>
+            <div id="runnerListContent"></div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        const STORAGE_KEY = 'local_runner_database';
+        let xmlRunners = [];
+        let currentRunners = [];
+        
+        // Utility functions
+        function log(message, type = 'info') {
+            const resultDiv = document.getElementById('resultContent');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : 'info';
+            resultDiv.innerHTML += `<div class="section ${className}"><strong>[${timestamp}]</strong> ${message}</div>`;
+            console.log(`[DbManager] ${message}`);
+        }
+        
+        // Database status functions
+        function checkCurrentDatabase() {
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (!stored) {
+                    document.getElementById('currentStatus').innerHTML = `
+                        <h3>Current Status</h3>
+                        <div class="error">No current runner database found in localStorage!</div>
+                    `;
+                    return;
+                }
+                
+                const data = JSON.parse(stored);
+                const runnerCount = Array.isArray(data) ? data.length : 0;
+                
+                const statusClass = runnerCount < 100 ? 'warning' : 'success';
+                
+                document.getElementById('currentStatus').innerHTML = `
+                    <h3>Current Status</h3>
+                    <div class="${statusClass}">
+                        <p>Current runners in localStorage: <strong>${runnerCount}</strong></p>
+                    </div>
+                `;
+                
+                // Store current runners for other operations
+                currentRunners = data.map(runner => ({
+                    ...runner,
+                    lastUsed: new Date(runner.lastUsed)
+                }));
+                
+                return { runnerCount, data };
+            } catch (error) {
+                document.getElementById('currentStatus').innerHTML = `
+                    <h3>Current Status</h3>
+                    <div class="error">Error reading current database: ${error.message}</div>
+                `;
+                return null;
+            }
+        }
+        
+        function checkLocalStorage() {
+            log('Checking localStorage backup...', 'info');
+            
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (!stored) {
+                    log('No localStorage backup found!', 'error');
+                    return;
+                }
+                
+                const backupData = JSON.parse(stored);
+                const runnerCount = Array.isArray(backupData) ? backupData.length : 0;
+                
+                // Get newest lastUsed date as backup timestamp
+                let backupDate = 'Unknown';
+                if (runnerCount > 0) {
+                    const dates = backupData
+                        .map(r => new Date(r.lastUsed))
+                        .sort((a, b) => b.getTime() - a.getTime());
+                    backupDate = dates[0].toLocaleString();
+                }
+                
+                const backupStatus = `
+                    <h3>localStorage Backup Status</h3>
+                    <div class="${runnerCount >= 100 ? 'success' : 'warning'}">
+                        <p><strong>Backup runners found: ${runnerCount}</strong></p>
+                        <p>Last backup timestamp: ${backupDate}</p>
+                    </div>
+                `;
+                
+                document.getElementById('backupStatus').innerHTML = backupStatus;
+                
+                log(`Found localStorage backup with ${runnerCount} runners`, 
+                    runnerCount >= 100 ? 'success' : 'warning');
+                
+                return { runnerCount, data: backupData };
+                
+            } catch (error) {
+                const errorMsg = `Error checking localStorage backup: ${error.message}`;
+                log(errorMsg, 'error');
+                document.getElementById('backupStatus').innerHTML = `
+                    <h3>localStorage Backup Status</h3>
+                    <div class="error">${errorMsg}</div>
+                `;
+                return null;
+            }
+        }
+        
+        // Recovery functions
+        function recoverFromLocalStorage() {
+            log('Attempting recovery from localStorage backup...', 'info');
+            
+            const backupInfo = checkLocalStorage();
+            if (!backupInfo) {
+                log('Cannot recover - no valid backup found', 'error');
+                return;
+            }
+            
+            if (backupInfo.runnerCount < 100) {
+                log(`Backup only has ${backupInfo.runnerCount} runners - may not be complete`, 'warning');
+            }
+            
+            log(`Would recover ${backupInfo.runnerCount} runners from localStorage backup`, 'info');
+            log('To complete recovery, you need to use the actual application with the updated code', 'warning');
+        }
+        
+        // XML Import Functions
+        function loadXMLFile() {
+            const fileInput = document.getElementById('xmlFileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                log('No XML file selected', 'error');
+                return;
+            }
+            
+            log(`Loading XML file: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const xmlContent = e.target.result;
+                    parseXMLContent(xmlContent);
+                } catch (error) {
+                    log(`Error reading XML file: ${error.message}`, 'error');
+                }
+            };
+            reader.readAsText(file);
+        }
+        
+        function parseXMLContent(xmlContent) {
+            try {
+                log('Parsing XML content...');
+                
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
+                
+                const parserError = xmlDoc.getElementsByTagName('parsererror')[0];
+                if (parserError) {
+                    throw new Error('XML parsing error: ' + parserError.textContent);
+                }
+                
+                const competitors = xmlDoc.getElementsByTagName('Competitor');
+                xmlRunners = [];
+                
+                for (let i = 0; i < competitors.length; i++) {
+                    const competitor = competitors[i];
+                    const runner = parseCompetitor(competitor);
+                    if (runner) {
+                        xmlRunners.push(runner);
+                    }
+                }
+                
+                document.getElementById('xmlStatus').innerHTML = `
+                    <div class="success">
+                        <p><strong>${xmlRunners.length} runners parsed from XML</strong></p>
+                        <p>Ready to import</p>
+                    </div>
+                `;
+                
+                document.getElementById('xmlMergeBtn').disabled = false;
+                document.getElementById('xmlReplaceBtn').disabled = false;
+                
+                log(`Successfully parsed ${xmlRunners.length} runners from XML`, 'success');
+                
+            } catch (error) {
+                log(`Error parsing XML: ${error.message}`, 'error');
+                document.getElementById('xmlStatus').innerHTML = `
+                    <div class="error">Failed to parse XML: ${error.message}</div>
+                `;
+            }
+        }
+        
+        function parseCompetitor(competitor) {
+            try {
+                const person = competitor.getElementsByTagName('Person')[0];
+                if (!person) return null;
+                
+                const nameElement = person.getElementsByTagName('Name')[0];
+                if (!nameElement) return null;
+                
+                const givenName = nameElement.getElementsByTagName('Given')[0]?.textContent?.trim();
+                const familyName = nameElement.getElementsByTagName('Family')[0]?.textContent?.trim();
+                
+                if (!givenName || !familyName) return null;
+                
+                const sex = person.getAttribute('sex') || undefined;
+                const birthDateElement = person.getElementsByTagName('BirthDate')[0];
+                let birthYear;
+                if (birthDateElement) {
+                    const birthDate = birthDateElement.textContent.trim();
+                    birthYear = parseInt(birthDate.split('-')[0]);
+                }
+                
+                const controlCard = competitor.getElementsByTagName('ControlCard')[0];
+                let cardNumber;
+                if (controlCard) {
+                    cardNumber = parseInt(controlCard.textContent.trim());
+                }
+                
+                const orgElement = competitor.getElementsByTagName('Organisation')[0];
+                let club = '';
+                if (orgElement) {
+                    const orgId = orgElement.getElementsByTagName('Id')[0]?.textContent?.trim();
+                    const orgName = orgElement.getElementsByTagName('Name')[0]?.textContent?.trim();
+                    
+                    if (orgName) {
+                        club = orgName;
+                    } else if (orgId === '852') {
+                        club = 'DVOA';
+                    } else if (orgId === '3') {
+                        club = 'QOC';
+                    } else if (orgId === '4') {
+                        club = 'HVO';
+                    } else if (orgId === '14') {
+                        club = 'None';
+                    } else if (orgId === '90010') {
+                        club = 'CSU';
+                    } else {
+                        club = orgId ? `Org-${orgId}` : '';
+                    }
+                }
+                
+                return {
+                    name: { first: givenName, last: familyName },
+                    club: club,
+                    birthYear: birthYear,
+                    sex: sex,
+                    cardNumber: cardNumber,
+                    nationality: '',
+                    phone: '',
+                    email: ''
+                };
+                
+            } catch (error) {
+                console.warn('Error parsing competitor:', error);
+                return null;
+            }
+        }
+        
+        function performXMLImport(mode) {
+            if (xmlRunners.length === 0) {
+                log('No XML runners to import', 'error');
+                return;
+            }
+            
+            log(`Starting XML import in ${mode} mode...`, 'info');
+            
+            const originalCount = currentRunners.length;
+            let imported = 0;
+            let updated = 0;
+            const errors = [];
+            
+            try {
+                if (mode === 'replace') {
+                    currentRunners = [];
+                    log('Cleared existing database for replacement', 'warning');
+                }
+                
+                xmlRunners.forEach((xmlRunner, index) => {
+                    try {
+                        const existingRunner = currentRunners.find(r => 
+                            r.name.first.toLowerCase() === xmlRunner.name.first.toLowerCase() &&
+                            r.name.last.toLowerCase() === xmlRunner.name.last.toLowerCase()
+                        );
+                        
+                        if (existingRunner && mode === 'merge') {
+                            let hasUpdates = false;
+                            if (xmlRunner.club && (!existingRunner.club || existingRunner.club === 'None')) {
+                                existingRunner.club = xmlRunner.club;
+                                hasUpdates = true;
+                            }
+                            if (xmlRunner.birthYear && !existingRunner.birthYear) {
+                                existingRunner.birthYear = xmlRunner.birthYear;
+                                hasUpdates = true;
+                            }
+                            if (xmlRunner.sex && !existingRunner.sex) {
+                                existingRunner.sex = xmlRunner.sex;
+                                hasUpdates = true;
+                            }
+                            if (xmlRunner.cardNumber && !existingRunner.cardNumber) {
+                                existingRunner.cardNumber = xmlRunner.cardNumber;
+                                hasUpdates = true;
+                            }
+                            if (hasUpdates) {
+                                existingRunner.lastUsed = new Date();
+                                updated++;
+                            }
+                        } else {
+                            const newRunner = {
+                                id: `xml_import_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                                ...xmlRunner,
+                                lastUsed: new Date(),
+                                timesUsed: 0
+                            };
+                            currentRunners.push(newRunner);
+                            imported++;
+                        }
+                    } catch (error) {
+                        errors.push(`Runner ${index + 1}: ${error.message}`);
+                    }
+                });
+                
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(currentRunners));
+                
+                // Notify other tabs/windows that the database was updated
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new Event('localRunnerDatabaseUpdate'));
+                }
+                
+                const finalCount = currentRunners.length;
+                
+                document.getElementById('xmlStatus').innerHTML = `
+                    <div class="success">
+                        <h4>XML Import Complete!</h4>
+                        <p><strong>Mode:</strong> ${mode}</p>
+                        <p><strong>Original:</strong> ${originalCount} → <strong>Final:</strong> ${finalCount}</p>
+                        <p><strong>New:</strong> ${imported} | <strong>Updated:</strong> ${updated}</p>
+                        ${errors.length > 0 ? `<p><strong>Errors:</strong> ${errors.length}</p>` : ''}
+                    </div>
+                `;
+                
+                log(`XML import complete: ${imported} new, ${updated} updated, ${finalCount} total`, 'success');
+                
+                // Refresh current database display
+                checkCurrentDatabase();
+                
+            } catch (error) {
+                log(`XML import failed: ${error.message}`, 'error');
+                document.getElementById('xmlStatus').innerHTML = `
+                    <div class="error">Import failed: ${error.message}</div>
+                `;
+            }
+        }
+        
+        // Export and utility functions
+        function exportCurrentData() {
+            log('Exporting current localStorage data...', 'info');
+            
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (!stored) {
+                    log('No data to export', 'error');
+                    return;
+                }
+                
+                const data = JSON.parse(stored);
+                const runnerCount = Array.isArray(data) ? data.length : 0;
+                
+                const exportData = {
+                    exportedAt: new Date().toISOString(),
+                    version: '2.0',
+                    platform: 'MeOS-Entry-Build-Recovery',
+                    totalRunners: runnerCount,
+                    runners: data.map(runner => ({
+                        ...runner,
+                        lastUsed: runner.lastUsed
+                    }))
+                };
+                
+                const jsonString = JSON.stringify(exportData, null, 2);
+                const blob = new Blob([jsonString], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `runner_database_recovery_${runnerCount}_runners_${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                log(`Exported ${runnerCount} runners to download file`, 'success');
+                
+            } catch (error) {
+                log(`Error exporting data: ${error.message}`, 'error');
+            }
+        }
+        
+        function clearAllData() {
+            if (!confirm('Are you sure you want to clear ALL runner data? This cannot be undone!')) {
+                return;
+            }
+            
+            localStorage.removeItem(STORAGE_KEY);
+            currentRunners = [];
+            
+            // Notify other tabs/windows that the database was updated
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new Event('localRunnerDatabaseUpdate'));
+            }
+            
+            log('All runner data cleared', 'warning');
+            checkCurrentDatabase();
+        }
+        
+        function showAllRunners() {
+            log('Displaying all current runners...', 'info');
+            
+            try {
+                const stored = localStorage.getItem(STORAGE_KEY);
+                if (!stored) {
+                    log('No runners to display', 'error');
+                    return;
+                }
+                
+                const data = JSON.parse(stored);
+                const runnerCount = Array.isArray(data) ? data.length : 0;
+                
+                if (runnerCount === 0) {
+                    log('No runners found in database', 'warning');
+                    return;
+                }
+                
+                // Sort runners by name
+                const sortedRunners = data.sort((a, b) => {
+                    const nameA = `${a.name.first} ${a.name.last}`.toLowerCase();
+                    const nameB = `${b.name.first} ${b.name.last}`.toLowerCase();
+                    return nameA.localeCompare(nameB);
+                });
+                
+                let runnerListHtml = `<h4>All ${runnerCount} Runners:</h4><pre>`;
+                sortedRunners.forEach((runner, index) => {
+                    const club = runner.club || 'N/A';
+                    const card = runner.cardNumber || 'N/A';
+                    const year = runner.birthYear || 'N/A';
+                    const sex = runner.sex || 'N/A';
+                    runnerListHtml += `${String(index + 1).padStart(3, ' ')}. ${runner.name.first} ${runner.name.last} | ${club} | Card: ${card} | ${year} | ${sex}\n`;
+                });
+                runnerListHtml += '</pre>';
+                
+                document.getElementById('runnerListContent').innerHTML = runnerListHtml;
+                document.getElementById('runnerList').style.display = 'block';
+                
+                log(`Displayed all ${runnerCount} runners`, 'success');
+                
+            } catch (error) {
+                log(`Error displaying runners: ${error.message}`, 'error');
+            }
+        }
+        
+        // Initialize on page load
+        window.onload = function() {
+            log('Database Manager initialized', 'info');
+            checkCurrentDatabase();
+            checkLocalStorage();
+        };
+    </script>
+</body>
+</html>

@@ -11,7 +11,8 @@ import {
   Progress,
   Divider,
   Tag,
-  App
+  App,
+  Modal
 } from 'antd';
 import { 
   InboxOutlined, 
@@ -86,6 +87,8 @@ const JotformImport: React.FC = () => {
   const [fixedEntries, setFixedEntries] = useState<Set<string>>(new Set());
   const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
   const [lastImportStats, setLastImportStats] = useState<{newCount: number, updatedCount: number} | null>(null);
+  const [meosConnected, setMeosConnected] = useState<boolean | null>(null);
+  const [checkingMeos, setCheckingMeos] = useState(false);
   
   // Pagination state for CSV preview table
   const [csvPagination, setCsvPagination] = useState({
@@ -128,6 +131,20 @@ const JotformImport: React.FC = () => {
   // Handle file upload and CSV parsing
   const handleFileUpload = useCallback((file: File) => {
     setSelectedFile(file);
+
+    // Try to automatically set working directory from the chosen file (best-effort)
+    (async () => {
+      try {
+        const currentWorkingDir = localEntryService.getWorkingDirectoryName() || localEntryService.getWorkingDirectoryPath();
+        if (!currentWorkingDir) {
+          const ok = await (localEntryService as any).setWorkingDirectoryFromSelectedFile?.(file);
+          if (ok) {
+            const dirName = localEntryService.getWorkingDirectoryName();
+            if (dirName) setWorkingDirectory(dirName);
+          }
+        }
+      } catch {}
+    })();
     
     // Auto-detect delimiter based on file content
     const reader = new FileReader();
@@ -214,10 +231,25 @@ const JotformImport: React.FC = () => {
             }, 1000);
           }
 
-          // Auto-save for OE12 if directory is set
-          if (detectedFormat === 'OE12' && currentWorkingDir) {
-            // Use raw data for OE12 import to preserve headers
-            handleSaveLocally({ detectedFormat: 'OE12', data: results.data, fileNameOverride: file.name });
+          // Auto-save for OE12 immediately (attempt will set directory automatically in Electron)
+          if (detectedFormat === 'OE12') {
+            if (meosConnected) {
+              // Use raw data for OE12 import to preserve headers
+              handleSaveLocally({ detectedFormat: 'OE12', data: results.data, fileNameOverride: file.name });
+            } else {
+              Modal.confirm({
+                title: 'MeOS API not connected',
+                content: (
+                  <div>
+                    <p>The MeOS API is not reachable. Class mapping will fall back to built-in mappings.</p>
+                    <p>Please start MeOS REST API for best results, or continue with fallback mapping.</p>
+                  </div>
+                ),
+                okText: 'Proceed (fallback mapping)',
+                cancelText: 'Cancel',
+                onOk: () => handleSaveLocally({ detectedFormat: 'OE12', data: results.data, fileNameOverride: file.name }),
+              });
+            }
           }
         } catch (error) {
           message.error('Failed to parse CSV data. Please check the format.');
@@ -238,7 +270,7 @@ const JotformImport: React.FC = () => {
     reader.readAsText(file);
     
     return false; // Prevent default upload behavior
-  }, []);
+  }, [meosConnected]); // Include meosConnected in dependency array
 
   // Set working directory for consistent file saving
   const handleSetWorkingDirectory = async () => {
@@ -262,6 +294,21 @@ const JotformImport: React.FC = () => {
       setWorkingDirectory(dirName);
     }
   }, []);
+
+  // Check MeOS connectivity on mount
+  const checkMeos = async () => {
+    try {
+      setCheckingMeos(true);
+      const ok = await meosApi.testConnection();
+      setMeosConnected(ok);
+    } catch {
+      setMeosConnected(false);
+    } finally {
+      setCheckingMeos(false);
+    }
+  };
+
+  React.useEffect(() => { checkMeos(); }, []);
 
   // Helper function to check if a name is properly capitalized
   const isProperlyCapitalized = (name: string): boolean => {
@@ -587,12 +634,30 @@ const JotformImport: React.FC = () => {
     const results: ImportResult[] = [];
 
     try {
+      // Ensure working directory is set (best-effort) before saving backup
+      try {
+        const currentWorkingDir = localEntryService.getWorkingDirectoryName() || localEntryService.getWorkingDirectoryPath();
+        if (!currentWorkingDir && selectedFile) {
+          const ok = await (localEntryService as any).setWorkingDirectoryFromSelectedFile?.(selectedFile as File);
+          if (ok) {
+            const dirName = localEntryService.getWorkingDirectoryName();
+            if (dirName) setWorkingDirectory(dirName);
+          }
+        }
+      } catch {}
+
       // Import all entries to local storage, passing filename to set directory preference
       const fileName = opts?.fileNameOverride || selectedFile?.name;
       
       console.log(`[Import] Using ${detectedFormat} format, importing ${dataSource.length} entries`);
       
-      const importResult = await localEntryService.importFromCsv(dataSource, fileName);
+      const importResult = await localEntryService.importFromCsv(
+        dataSource,
+        fileName,
+        (processed: number, total: number) => {
+          setImportStatus(prev => ({ ...prev, processed }));
+        }
+      );
       
       // Learn runners from imported entries for future auto-completion
       const runnerLearningResult = localRunnerService.bulkLearnFromEntries(importResult.entries);
@@ -656,11 +721,13 @@ const JotformImport: React.FC = () => {
         const workingPath = localEntryService.getWorkingDirectoryPath();
         
         let locationMsg = '';
-        if (workingDir && workingPath) {
-          // Firefox fallback case
+        const isElectron = typeof (window as any).process !== 'undefined' && !!(window as any).process.versions?.electron;
+        if (isElectron && workingPath) {
+          locationMsg = ` to ${workingPath}`;
+        } else if (workingDir && workingPath) {
+          // Browser fallback case where we can't auto-save into the folder
           locationMsg = `. Please move the downloaded file to: ${workingPath}`;
         } else if (workingDir) {
-          // Chrome/Edge case
           locationMsg = ` in ${workingDir}`;
         }
         
@@ -677,6 +744,27 @@ const JotformImport: React.FC = () => {
         }
         
         message.success(`${statusMsg} from ${format} format locally AND created backup file${locationMsg}. They will be ready for check-in on event day.`, 10);
+
+        // Show detailed completion dialog
+        try {
+          const capitalizationIssues = csvData.filter(entry => hasCapitalizationIssues(entry)).length;
+          Modal.success({
+            title: 'Import Complete',
+            width: 640,
+            okText: 'OK',
+            content: (
+              <div>
+                <p><strong>Entries imported:</strong> {dataSource.length}</p>
+                <p><strong>New:</strong> {newCount} • <strong>Updated:</strong> {updatedCount}</p>
+                <p><strong>Capitalization checks:</strong> {capitalizationIssues === 0 ? 'All good' : `${capitalizationIssues} need review (use Fix All)`}</p>
+                <p><strong>Backup saved</strong>{locationMsg || ''}.</p>
+                <p style={{ marginTop: 8 }}>
+                  Next: click <strong>Continue to Review & Fix</strong> to align with the Runner Database.
+                </p>
+              </div>
+            ),
+          });
+        } catch {}
       } catch (exportError) {
         console.warn('Local save succeeded but backup file creation failed:', exportError);
         const { newCount, updatedCount, format } = importResult;
@@ -1153,10 +1241,17 @@ const JotformImport: React.FC = () => {
       {/* MeOS Integration Info */}
       {csvData.length > 0 && (
         <Alert
-          message="🎉 MeOS Integration Ready"
+          message={meosConnected ? '🎉 MeOS Integration Ready' : '⚠️ MeOS API Not Connected'}
           description={
             <div>
-              <p><strong>Status:</strong> Direct MeOS REST API integration is working! Entries can be submitted directly to your MeOS competition.</p>
+              {meosConnected ? (
+                <p><strong>Status:</strong> Direct MeOS REST API integration is working! Entries can be submitted directly to your MeOS competition.</p>
+              ) : (
+                <div>
+                  <p><strong>Status:</strong> MeOS API is not reachable. Turn on MeOS REST API and click Retry.</p>
+                  <Button size="small" loading={checkingMeos} onClick={checkMeos}>Retry</Button>
+                </div>
+              )}
               <p><strong>Workflow Options:</strong></p>
               <ol style={{ marginBottom: 0, paddingLeft: '16px' }}>
                 <li><strong>Save for Check-in:</strong> Click "Save Locally" to store entries + create backup file</li>
@@ -1169,7 +1264,7 @@ const JotformImport: React.FC = () => {
               )}
             </div>
           }
-          type="success"
+          type={meosConnected ? 'success' : 'warning'}
           showIcon
           style={{ marginBottom: '24px' }}
         />
