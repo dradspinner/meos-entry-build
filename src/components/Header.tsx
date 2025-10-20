@@ -1,6 +1,6 @@
 import React from 'react';
 import { Layout, Dropdown, Button, message } from 'antd';
-import { SettingOutlined, DatabaseOutlined } from '@ant-design/icons';
+import { SettingOutlined, DatabaseOutlined, TrophyOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import logoImage from '../assets/dvoa_logo.png';
 
@@ -16,6 +16,13 @@ const Header: React.FC<HeaderProps> = ({ title = 'MeOS Event Management System' 
     const dbManagerUrl = window.location.origin + '/database_manager.html';
     window.open(dbManagerUrl, 'database-manager', 'width=1000,height=800,scrollbars=yes,resizable=yes');
     message.info('Opening Database Manager...');
+  };
+
+  const handleOpenLiveResults = () => {
+    // Open live results in a new window/tab
+    const liveResultsUrl = window.location.origin + '/live_results.html';
+    window.open(liveResultsUrl, 'live-results', 'width=1400,height=900,scrollbars=yes,resizable=yes');
+    message.info('Opening Live Results Display...');
   };
 
   const toolsMenuItems: MenuProps['items'] = [
@@ -53,6 +60,16 @@ const Header: React.FC<HeaderProps> = ({ title = 'MeOS Event Management System' 
         </h1>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <Button 
+          icon={<TrophyOutlined />} 
+          type="primary" 
+          size="large"
+          onClick={handleOpenLiveResults}
+          title="Open Live Results in New Window"
+          style={{ background: '#52c41a', borderColor: '#52c41a' }}
+        >
+          Live Results
+        </Button>
         <Dropdown menu={{ items: toolsMenuItems }} placement="bottomRight">
           <Button 
             icon={<SettingOutlined />} 
