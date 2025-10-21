@@ -828,9 +828,8 @@ class LocalEntryService {
       // Set needsRentalCard based on the Rented field
       const needsRentalCard = rentedValue === 'X';
       
-      // For hired card detection, don't set it here - let the hired card service determine
-      // based on whether the card number is in the MeOS hired card list
-      const isHired = false; // Let the hired card service determine this based on card number
+      // If needsRentalCard is true, this IS a hired card that needs to be collected
+      const isHired = needsRentalCard;
       
       console.log(`[OE12 Debug] Card info for ${csvEntry['First name']} ${csvEntry['Surname']}: CardNumber='${cardNumber}', Rented='${rentedValue}', needsRental=${needsRentalCard}, isHired=${isHired}`);
       
@@ -1657,6 +1656,34 @@ class LocalEntryService {
     }
   }
   
+  /**
+   * Migrate existing entries: ensure isHiredCard is true when needsRentalCard is true
+   */
+  migrateRentalCardFlags(): { updated: number } {
+    const entries = this.getAllEntries();
+    let updatedCount = 0;
+    
+    const updatedEntries = entries.map(entry => {
+      // If needsRentalCard is true but isHiredCard is false, fix it
+      if (entry.issues?.needsRentalCard && !entry.isHiredCard) {
+        updatedCount++;
+        console.log(`[Migration] Fixing ${entry.name.first} ${entry.name.last}: needsRentalCard=true but isHiredCard=false`);
+        return {
+          ...entry,
+          isHiredCard: true
+        };
+      }
+      return entry;
+    });
+    
+    if (updatedCount > 0) {
+      this.saveEntries(updatedEntries);
+      console.log(`[Migration] Updated isHiredCard flag for ${updatedCount} entries`);
+    }
+    
+    return { updated: updatedCount };
+  }
+
   /**
    * Recalculate issues for all entries (useful after logic changes)
    */

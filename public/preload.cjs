@@ -14,17 +14,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showSaveDialog: (options) => ipcRenderer.invoke('show-save-dialog', options),
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
   
+  // Live results export
+  writeLiveResults: (jsonContent) => ipcRenderer.invoke('write-live-results', jsonContent),
+  
   // Menu event listeners
-  onMenuEvent: (callback) => {
-    ipcRenderer.on('menu-new-event', callback);
-    ipcRenderer.on('menu-open-file', callback);
-    ipcRenderer.on('menu-import-oe', callback);
-    ipcRenderer.on('menu-export-data', callback);
-    ipcRenderer.on('menu-switch-module', callback);
-    ipcRenderer.on('menu-connect-si-reader', callback);
-    ipcRenderer.on('menu-test-meos-connection', callback);
-    ipcRenderer.on('menu-sync-database', callback);
-    ipcRenderer.on('menu-backup-data', callback);
+  onMenuEvent: (eventName, callback) => {
+    ipcRenderer.on(eventName, callback);
+    // Return cleanup function to remove this specific listener
+    return () => {
+      ipcRenderer.removeListener(eventName, callback);
+    };
   },
   
   // App info
@@ -32,8 +31,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Platform info
   platform: process.platform,
-  isElectron: true
+  isElectron: true,
+  
+  // Serial debugging
+  debugSerial: () => {
+    console.log('[Preload] Serial API check:', {
+      hasSerial: 'serial' in navigator,
+      userAgent: navigator.userAgent,
+      platform: process.platform
+    });
+    
+    if ('serial' in navigator) {
+      // Log serial API methods availability
+      console.log('[Preload] Serial API methods:', {
+        getPorts: typeof navigator.serial.getPorts,
+        requestPort: typeof navigator.serial.requestPort
+      });
+    }
+  }
 });
 
 // Log when preload is ready
 console.log('[Preload] Electron API exposed to renderer process');
+console.log('[Preload] Serial API available:', 'serial' in navigator);

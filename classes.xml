@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+
+<MOPComplete xmlns="http://www.melin.nu/mop">
+<cls id="1" ord="10" radio="">Brown</cls>
+<cls id="2" ord="20" radio="">Green</cls>
+<cls id="3" ord="30" radio="">Orange</cls>
+<cls id="4" ord="40" radio="">Red</cls>
+<cls id="5" ord="50" radio="">White</cls>
+<cls id="6" ord="60" radio="">Yellow</cls>
+</MOPComplete>

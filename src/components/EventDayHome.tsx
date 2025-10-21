@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { Card, Row, Col, Button, Typography, Statistic, Table, Input, Tag, Space, Badge, message, Alert, Modal } from 'antd';
 import { CheckCircleOutlined, UserAddOutlined, DatabaseOutlined, ArrowLeftOutlined, UsbOutlined, EditOutlined, IdcardOutlined, LoginOutlined, ReloadOutlined, SyncOutlined, DeleteOutlined } from '@ant-design/icons';
+import RunnerDatabaseManager from './RunnerDatabaseManager';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
 import { localRunnerService } from '../services/localRunnerService';
 import { eventMetaService } from '../services/eventMetaService';
 import SameDayRegistration from './SameDayRegistration';
 import EntryEditModal from './EntryEditModal';
-import RunnerDatabaseManager from './RunnerDatabaseManager';
 import { sportIdentService, type SICardReadEvent } from '../services/sportIdentService';
 import { meosApi } from '../services/meosApi';
 
@@ -22,7 +22,6 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
   const [entries, setEntries] = useState<LocalEntry[]>(localEntryService.getAllEntries());
   const [filter, setFilter] = useState('');
   const [editOpen, setEditOpen] = useState(false);
-  const [runnerDbOpen, setRunnerDbOpen] = useState(false);
   const [selected, setSelected] = useState<LocalEntry | null>(null);
   const [lastCard, setLastCard] = useState<string | null>(null);
   const [readerStatus, setReaderStatus] = useState(sportIdentService.getStatus());
@@ -32,10 +31,62 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
   const [filterKey, setFilterKey] = useState<'all' | 'pending' | 'checked-in' | 'needsRental'>('all');
   const [meosConnected, setMeosConnected] = useState<boolean | null>(null);
   const [checkingMeos, setCheckingMeos] = useState(false);
+  const [runnerDbOpen, setRunnerDbOpen] = useState(false);
 
-  const refresh = () => setEntries(localEntryService.getAllEntries());
+  const refresh = () => {
+    setEntries(localEntryService.getAllEntries());
+    // Export checked-in runners to JSON file for live results
+    exportLiveResultsData();
+  };
+
+  const exportLiveResultsData = async () => {
+    try {
+      const allEntries = localEntryService.getAllEntries();
+      const checkedIn = allEntries.filter(e => e.status === 'checked-in' || e.checkedInAt);
+      
+      const liveData = {
+        timestamp: new Date().toISOString(),
+        totalCheckedIn: checkedIn.length,
+        runners: checkedIn.map(e => ({
+          name: e.name,
+          club: e.club,
+          className: e.className,
+          classId: e.classId,
+          cardNumber: e.cardNumber,
+          checkedInAt: e.checkedInAt,
+          status: e.status
+        }))
+      };
+
+      // Write to public/live_data.json
+      const jsonStr = JSON.stringify(liveData, null, 2);
+      
+      // Check if we're in Electron with file system access
+      if (typeof window !== 'undefined' && (window as any).electronAPI) {
+        await (window as any).electronAPI.writeLiveResults(jsonStr);
+        console.log('[LiveResults Export] Exported', checkedIn.length, 'checked-in runners to live_data.json');
+      } else {
+        // Browser fallback - write to localStorage for same-origin access
+        localStorage.setItem('live_results_export', jsonStr);
+        console.log('[LiveResults Export] Exported to localStorage (browser mode)');
+      }
+    } catch (error) {
+      console.error('[LiveResults Export] Failed:', error);
+    }
+  };
 
   React.useEffect(() => {
+    // Run migration to fix existing entries with needsRentalCard but not isHiredCard
+    const migrationResult = localEntryService.migrateRentalCardFlags();
+    if (migrationResult.updated > 0) {
+      console.log(`[EventDayHome] Migrated ${migrationResult.updated} rental card entries`);
+      // Refresh entries after migration
+      refresh();
+    }
+    
+    // Export live results data on initial load
+    exportLiveResultsData();
+    
     // Initial MeOS status check - only run once on mount
     checkMeos();
     const cb = (ev: SICardReadEvent) => {
@@ -91,17 +142,37 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
   const pending = totalEntries - checkedIn;
   const needsRental = entries.filter(e => e.issues?.needsRentalCard).length;
   
-  // Get or set default event metadata
+  // Get event metadata from MeOS API or fallback to stored/default
   const [meta, setMeta] = React.useState(eventMetaService.get());
   React.useEffect(() => {
-    let currentMeta = eventMetaService.get();
-    
-    if (!currentMeta) {
-      const defaultMeta = { name: 'DVOA Event', date: new Date().toISOString().split('T')[0] };
-      eventMetaService.set(defaultMeta);
-      currentMeta = defaultMeta;
-    }
-    setMeta(currentMeta);
+    (async () => {
+      try {
+        // Try to fetch competition info from MeOS API
+        const competition = await meosApi.getCompetition();
+        if (competition && competition.name) {
+          const fetchedMeta = {
+            name: competition.name,
+            date: competition.date,
+            organizer: competition.organizer
+          };
+          eventMetaService.set(fetchedMeta);
+          setMeta(fetchedMeta);
+          console.log('[EventDayHome] Loaded event metadata from MeOS:', fetchedMeta);
+          return;
+        }
+      } catch (error) {
+        console.warn('[EventDayHome] Failed to fetch competition from MeOS API:', error);
+      }
+      
+      // Fallback to stored metadata or defaults
+      let currentMeta = eventMetaService.get();
+      if (!currentMeta) {
+        const defaultMeta = { name: 'DVOA Event', date: new Date().toISOString().split('T')[0] };
+        eventMetaService.set(defaultMeta);
+        currentMeta = defaultMeta;
+      }
+      setMeta(currentMeta);
+    })();
   }, []);
 
   const checkMeos = async () => {
@@ -146,8 +217,8 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
               text={meosConnected === null ? 'MeOS API: Unknown' : meosConnected ? 'MeOS API: Connected' : 'MeOS API: Disconnected'}
             />
             <Button size="small" loading={checkingMeos} onClick={checkMeos}>Refresh</Button>
-            <Button size="small" onClick={() => setRunnerDbOpen(true)}>Runner Database</Button>
             <Button size="small" icon={<SyncOutlined />} onClick={refreshRunnerDatabase} title="Refresh runner database from localStorage">Refresh Runners ({localRunnerService.getStats().total})</Button>
+            <Button size="small" icon={<DatabaseOutlined />} onClick={()=>setRunnerDbOpen(true)} title="Open Runner Database">Runner Database</Button>
           </Space>
         </Col>
         <Col>
@@ -181,13 +252,17 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
         </Col>
         <Col xs={24} sm={6}>
           <Card>
-            <Space>
-              <UsbOutlined />
-              <Badge status={readerStatus.connected ? 'success' : 'error'} text={readerStatus.connected ? 'Reader Connected' : 'Reader Disconnected'} />
-              {lastCard && <Tag color="green">Last: {lastCard}</Tag>}
-              {!readerStatus.connected && (
-                <Button size="small" icon={<UsbOutlined />} onClick={async ()=>{try{await sportIdentService.connect(); setReaderStatus(sportIdentService.getStatus());}catch{}}}>Connect</Button>
-              )}
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Space>
+                <UsbOutlined />
+                <Badge status={readerStatus.connected ? 'success' : 'error'} text={readerStatus.connected ? 'Reader Connected' : 'Reader Disconnected'} />
+                {lastCard && <Tag color="green">Last: {lastCard}</Tag>}
+              </Space>
+              <Space>
+                {!readerStatus.connected && (
+                  <Button size="small" icon={<UsbOutlined />} onClick={async ()=>{try{await sportIdentService.connect(); setReaderStatus(sportIdentService.getStatus());}catch{}}}>Connect</Button>
+                )}
+              </Space>
             </Space>
           </Card>
         </Col>
@@ -250,13 +325,39 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
         })}
         pagination={false}
         columns={[
-          { title: 'First Name', dataIndex: ['name','first'], key: 'first', sorter: (a: LocalEntry, b: LocalEntry) => (a.name.first||'').localeCompare(b.name.first||'') },
+          { 
+            title: 'First Name', 
+            dataIndex: ['name','first'], 
+            key: 'first', 
+            sorter: (a: LocalEntry, b: LocalEntry) => (a.name.first||'').localeCompare(b.name.first||''), 
+            render: (v: string, record: LocalEntry) => {
+              const isGroup = parseInt(record.nationality || '0') > 1;
+              return isGroup ? <span>👥 {v}</span> : v;
+            }
+          },
           { title: 'Last Name', dataIndex: ['name','last'], key: 'last', sorter: (a: LocalEntry, b: LocalEntry) => (a.name.last||'').localeCompare(b.name.last||'') },
           { title: 'Club', dataIndex: 'club', key: 'club', sorter: (a: LocalEntry, b: LocalEntry) => a.club.localeCompare(b.club) },
           { title: 'Class', dataIndex: 'className', key: 'className', sorter: (a: LocalEntry, b: LocalEntry) => (a.className||'').localeCompare(b.className||'') },
-          { title: 'Card', dataIndex: 'cardNumber', key: 'cardNumber', sorter: (a: LocalEntry, b: LocalEntry) => (parseInt(a.cardNumber||'0')||0) - (parseInt(b.cardNumber||'0')||0), render: (v: string) => v && v !== '0' ? <Tag>#{v}</Tag> : <Tag color="warning">None</Tag> },
+          { 
+            title: 'Card', 
+            dataIndex: 'cardNumber', 
+            key: 'cardNumber', 
+            sorter: (a: LocalEntry, b: LocalEntry) => (parseInt(a.cardNumber||'0')||0) - (parseInt(b.cardNumber||'0')||0), 
+            render: (v: string, record: LocalEntry) => {
+              const hasNumber = v && v !== '0';
+              // Rental requests before check-in or assignment: show Hired with red shading
+              if (record.issues?.needsRentalCard && !hasNumber) {
+                return <Tag style={{ border: '1px solid #ff4d4f', color: '#ff4d4f', backgroundColor: '#fff1f0' }}>Hired</Tag>;
+              }
+              // After assigning a rental card number: keep number with red outline and shading
+              if (record.isHiredCard && hasNumber) {
+                return <Tag style={{ border: '1px solid #ff4d4f', color: '#ff4d4f', backgroundColor: '#fff1f0' }}>{v}</Tag>;
+              }
+              // Personal cards
+              return hasNumber ? <Tag>{v}</Tag> : <Tag color="warning">None</Tag>;
+            }
+          },
           { title: 'Status', key: 'status', sorter: (a: LocalEntry, b: LocalEntry) => a.status.localeCompare(b.status), render: (_: any, r: LocalEntry) => r.status === 'checked-in' ? <Tag color="green">Checked In</Tag> : <Tag>Pending</Tag> },
-          { title: 'Rental?', key: 'rental', sorter: (a: LocalEntry, b: LocalEntry) => Number(!!a.issues?.needsRentalCard) - Number(!!b.issues?.needsRentalCard), render: (_: any, r: LocalEntry) => r.issues?.needsRentalCard ? <Tag color="red">Needs Rental</Tag> : null },
           { title: 'MeOS', key: 'meos', render: (_:any, r: LocalEntry) => {
               if (r.status !== 'checked-in') return <Tag>-</Tag>;
               // Optimistic: recently submitted entries show as In MeOS until verified
@@ -282,7 +383,14 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
           },
           { title: 'Actions', key: 'actions', render: (_: any, r: LocalEntry) => (
             <Space>
-              <Button size="small" icon={<EditOutlined />} onClick={()=>{setSelected(r); setEditOpen(true);}}>Edit</Button>
+              <Button 
+                size="small" 
+                icon={<EditOutlined />} 
+                onClick={()=>{setSelected(r); setEditOpen(true);}}
+                style={{ backgroundColor: '#f0f5ff', borderColor: '#adc6ff' }}
+              >
+                Edit
+              </Button>
               <Button 
                 size="small" 
                 danger 
@@ -304,19 +412,27 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
                     }
                   });
                 }}
+                style={{ backgroundColor: '#fff1f0', borderColor: '#ffccc7' }}
               >
                 Delete
               </Button>
               {r.status !== 'checked-in' ? (
                 <>
-                  <Button size="small" icon={<IdcardOutlined />} onClick={()=>{
-                    if (lastCard) {
-                      const u = localEntryService.updateEntry(r.id, { cardNumber: lastCard, isHiredCard: true });
-                      if (u) { message.success(`Assigned card ${lastCard}`); refresh(); }
-                    } else {
-                      message.info('Scan a card, then click Assign Last Card');
-                    }
-                  }}>Assign Last Card</Button>
+                  <Button 
+                    size="small" 
+                    icon={<IdcardOutlined />} 
+                    onClick={()=>{
+                      if (lastCard) {
+                        const u = localEntryService.updateEntry(r.id, { cardNumber: lastCard, isHiredCard: true });
+                        if (u) { message.success(`Assigned card ${lastCard}`); refresh(); }
+                      } else {
+                        message.info('Scan a card, then click Assign Last Card');
+                      }
+                    }}
+                    style={{ backgroundColor: '#f6ffed', borderColor: '#b7eb8f' }}
+                  >
+                    Assign Last Card
+                  </Button>
                   <Button size="small" type="primary" icon={<LoginOutlined />} onClick={()=>{
                     // Open edit modal to confirm info before check-in
                     setSelected(r);
@@ -355,19 +471,24 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
         visible={showSameDay} 
         onClose={() => {
           setShowSameDay(false); 
+          // Reset filters to show all entries (whether saved or registered)
+          setFilterKey('all');
+          setFilter('');
           refresh();
         }}
         onRegistrationComplete={(entry, cardNumber) => {
           setShowSameDay(false);
+          // Reset filters to show all entries so new registration is visible
+          setFilterKey('all');
+          setFilter('');
           refresh();
+          message.success(`${entry.name.first} ${entry.name.last} registered and visible in table!`);
         }}
       />
 
       {/* Runner Database Manager */}
-      <RunnerDatabaseManager 
-        open={runnerDbOpen}
-        onClose={()=> setRunnerDbOpen(false)}
-      />
+      <RunnerDatabaseManager open={runnerDbOpen} onClose={()=>setRunnerDbOpen(false)} />
+
     </div>
   );
 };

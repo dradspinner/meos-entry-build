@@ -43,11 +43,13 @@ import {
   InfoCircleOutlined,
   CloseOutlined,
   UsbOutlined,
-  TrophyOutlined
+  TrophyOutlined,
+  CopyOutlined
 } from '@ant-design/icons';
 import { meosApi } from '../services/meosApi';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
 import { meosClassService } from '../services/meosClassService';
+import { RENTAL_CARD_FEE } from '../constants';
 // import { runnerDatabaseService } from '../services/runnerDatabaseService'; // Disabled - causes CORS errors
 import { localRunnerService } from '../services/localRunnerService';
 import { meosRunnerDatabaseClient } from '../services/meosRunnerDatabaseClient';
@@ -63,6 +65,7 @@ const { Option } = Select;
 // Using LocalEntry interface from localEntryService
 
 const EventDayDashboard: React.FC = () => {
+  
   const { message } = App.useApp();
   const [entries, setEntries] = useState<LocalEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -120,7 +123,6 @@ const EventDayDashboard: React.FC = () => {
 
   // Load entries and MeOS classes on component mount
   useEffect(() => {
-    console.log('[EventDay] Component mounting, initializing...');
     loadEntries();
     loadMeosClasses();
     loadRollbackPoints(); // Load available rollback points
@@ -139,7 +141,6 @@ const EventDayDashboard: React.FC = () => {
     
     // Cleanup function to clear selections when component unmounts
     return () => {
-      console.log('[EventDay] Component unmounting, cleaning up...');
       setSelectedRowKeys([]);
       // Note: Don't cleanup meosHiredCardService here as it's a singleton used across the app
     };
@@ -153,7 +154,6 @@ const EventDayDashboard: React.FC = () => {
         entries.some(entry => entry.id === key)
       );
       if (validKeys.length !== selectedRowKeys.length) {
-        console.log('[EventDay] Cleaning up invalid selection keys');
         setSelectedRowKeys(validKeys);
       }
     }
@@ -163,7 +163,6 @@ const EventDayDashboard: React.FC = () => {
   useEffect(() => {
     const filteredEntries = getFilteredEntries();
     if (pagination.current > 1 && filteredEntries.length <= pagination.pageSize) {
-      console.log('[EventDay] Resetting pagination due to filter change');
       setPagination(prev => ({ ...prev, current: 1 }));
     }
   }, [searchText, filterIssues, selectedClass, selectedClub, pagination.current, pagination.pageSize]);
@@ -171,7 +170,6 @@ const EventDayDashboard: React.FC = () => {
   // Card reader event listener
   useEffect(() => {
     const handleCardReadEvent = async (event: SICardReadEvent) => {
-      console.log('[EventDay] Card read event:', event);
       setCardReaderStatus(sportIdentService.getStatus());
       
       if (event.type === 'card_read' && event.card) {
@@ -738,6 +736,9 @@ const EventDayDashboard: React.FC = () => {
     const initialGroupSize = parseInt(entry.nationality) || 1;
     setCurrentGroupSize(initialGroupSize);
     
+    // Pre-select rental checkbox if entry needs rental card or already marked as hired
+    const needsRentalCheckbox = entry.isHiredCard || entry.issues?.needsRentalCard || false;
+    
     editForm.setFieldsValue({
       firstName: entry.name.first,
       lastName: entry.name.last,
@@ -747,11 +748,13 @@ const EventDayDashboard: React.FC = () => {
       phone: entry.phone,
       classId: entry.classId,
       className: entry.className,
-      cardNumber: entry.cardNumber === '0' ? '' : entry.cardNumber,
-      isHiredCard: entry.isHiredCard || false,
+      cardNumber: entry.cardNumber === '0' ? '' : entry.cardNumber.replace(/^#/, ''),
+      isHiredCard: needsRentalCheckbox,
       fee: entry.fee,
       groupSize: initialGroupSize,
     });
+    
+    console.log(`[Edit Form] ${entry.name.first} ${entry.name.last}: isHiredCard=${entry.isHiredCard}, needsRentalCard=${entry.issues?.needsRentalCard}, checkbox=${needsRentalCheckbox}`);
   };
   
   // Check if current entry is a group based on current state or entry data
@@ -1444,6 +1447,110 @@ const EventDayDashboard: React.FC = () => {
       message.error('Failed to disconnect from card reader');
     }
   };
+  
+  // Run card reader diagnostics
+  const handleRunDiagnostics = async () => {
+    try {
+      message.loading('Running SportIdent diagnostics...', 0);
+      
+      const diagnostics = await sportIdentService.runDiagnostics();
+      
+      message.destroy();
+      
+      Modal.info({
+        title: '🔧 SportIdent Reader Diagnostics',
+        width: 700,
+        content: (
+          <div>
+            <div style={{ marginBottom: '16px' }}>
+              <Text strong>System Information:</Text>
+              <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                <li>Web Serial API: {diagnostics.webSerialSupported ? '✅ Supported' : '❌ Not Supported'}</li>
+                <li>Electron Permissions: {diagnostics.electronPermissions ? '✅ Enabled' : '⚠️ Limited'}</li>
+                <li>Available Ports: {diagnostics.availablePorts.length}</li>
+              </ul>
+            </div>
+            
+            {diagnostics.errors.length > 0 && (
+              <div style={{ padding: '12px', backgroundColor: '#fff2f0', border: '1px solid #ffccc7', borderRadius: '6px', marginBottom: '16px' }}>
+                <Text strong style={{ color: '#cf1322' }}>Issues Found:</Text>
+                <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                  {diagnostics.errors.map((error, index) => (
+                    <li key={index} style={{ color: '#cf1322' }}>{error}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            {diagnostics.recommendations.length > 0 && (
+              <div style={{ padding: '12px', backgroundColor: '#fff7e6', border: '1px solid #ffd591', borderRadius: '6px', marginBottom: '16px' }}>
+                <Text strong style={{ color: '#fa8c16' }}>Recommendations:</Text>
+                <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                  {diagnostics.recommendations.map((rec, index) => (
+                    <li key={index} style={{ color: '#fa8c16' }}>{rec}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            <div style={{ padding: '12px', backgroundColor: '#f0f8ff', border: '1px solid #91caff', borderRadius: '6px' }}>
+              <Text strong style={{ color: '#1890ff' }}>Browser Info:</Text>
+              <p style={{ margin: '8px 0', fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                {diagnostics.browserInfo}
+              </p>
+            </div>
+          </div>
+        )
+      });
+      
+    } catch (error) {
+      message.destroy();
+      console.error('Diagnostics failed:', error);
+      message.error('Failed to run diagnostics');
+    }
+  };
+  
+  // Show connection help
+  const handleShowConnectionHelp = () => {
+    const helpLines = sportIdentService.getConnectionHelp();
+    
+    Modal.info({
+      title: '🔧 SportIdent Connection Help',
+      width: 600,
+      content: (
+        <div>
+          <div style={{ fontFamily: 'monospace', fontSize: '14px', lineHeight: '1.5' }}>
+            {helpLines.map((line, index) => (
+              <div key={index} style={{ marginBottom: '4px' }}>
+                {line}
+              </div>
+            ))}
+          </div>
+          
+          <div style={{ padding: '12px', backgroundColor: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: '6px', marginTop: '16px' }}>
+            <Text strong style={{ color: '#52c41a' }}>Quick Actions:</Text>
+            <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+              <li>Press <strong>Windows + X</strong>, then <strong>M</strong> to open Device Manager</li>
+              <li>Look for "Silicon Labs CP210x" under Ports (COM & LPT)</li>
+              <li>If missing, download drivers from Silicon Labs website</li>
+            </ul>
+          </div>
+        </div>
+      )
+    });
+  };
+  
+  // Test card read function
+  const handleTestCardRead = async () => {
+    try {
+      const testCardNumber = Math.floor(Math.random() * 900000) + 100000; // Generate random 6-digit number
+      await sportIdentService.testCardRead(testCardNumber);
+      message.success(`🃴 Test card read: ${testCardNumber}`);
+    } catch (error) {
+      console.error('Test card read failed:', error);
+      message.error('Test card read failed');
+    }
+  };
 
   // Resubmit entry to MeOS after manual deletion
   const handleResubmitToMeos = async (entry: LocalEntry) => {
@@ -1488,8 +1595,26 @@ const EventDayDashboard: React.FC = () => {
   // Check-in entry and submit to MeOS
   const handleCheckInEntry = async (entry: LocalEntry) => {
     try {
-      // First, check in locally
-      const updatedEntry = localEntryService.checkInEntry(entry.id);
+      // CRITICAL: Check ORIGINAL entry for hired flag (before check-in update)
+      const isHired = entry.isHiredCard || entry.issues?.needsRentalCard || false;
+      
+      console.log(`[EventDay] Check-in ${entry.name.first} ${entry.name.last}: card=${entry.cardNumber}, isHiredCard=${entry.isHiredCard}, needsRentalCard=${entry.issues?.needsRentalCard}, computed isHired=${isHired}`);
+      
+      // If this is a hired card, update the flag BEFORE check-in and get updated entry
+      let entryToCheckIn = entry;
+      if (isHired && !entry.isHiredCard) {
+        console.log(`[EventDay] Setting isHiredCard=true for ${entry.name.first} ${entry.name.last} before check-in`);
+        const updated = localEntryService.updateEntry(entry.id, {
+          isHiredCard: true
+        });
+        if (updated) {
+          entryToCheckIn = updated;
+          console.log(`[EventDay] Updated entry, isHiredCard now: ${updated.isHiredCard}`);
+        }
+      }
+      
+      // Now check in locally
+      const updatedEntry = localEntryService.checkInEntry(entryToCheckIn.id);
       if (!updatedEntry) {
         message.error('Failed to check in entry - entry not found');
         return;
@@ -1502,31 +1627,42 @@ const EventDayDashboard: React.FC = () => {
         const classId = await getMeosClassId(entry.className, entry.classId);
         
         console.log(`[EventDay] Converting ${entry.name.first} ${entry.name.last}: className="${entry.className}", classId="${entry.classId}" -> MeOS classId=${classId}`);
-        console.log(`[EventDay] Hired card debug for ${entry.name.first} ${entry.name.last}: isHiredCard=${entry.isHiredCard}, cardNumber=${entry.cardNumber}`);
+        console.log(`[EventDay] Hired card check: isHiredCard=${entry.isHiredCard}, needsRentalCard=${entry.issues?.needsRentalCard}, isHired=${isHired}`);
+        console.log(`[EventDay] Card number: ${updatedEntry.cardNumber}`);
         
         const meosEntryParams = {
           name: `${entry.name.first} ${entry.name.last}`,
           club: entry.club,
           classId: classId,
-          cardNumber: parseInt(entry.cardNumber) || 0,
-          // Note: MeOS determines hired card status from its internal hired card database
+          cardNumber: parseInt(updatedEntry.cardNumber) || 0, // Use UPDATED card number
+          cardFee: isHired ? RENTAL_CARD_FEE : undefined, // CRITICAL: Mark as hired card in MeOS
           phone: entry.phone,
           birthYear: entry.birthYear ? parseInt(entry.birthYear) : undefined,
           sex: entry.sex as 'M' | 'F' | undefined,
           nationality: entry.nationality,
         };
         
-        console.log(`[EventDay] MeOS entry params:`, meosEntryParams);
-        console.log(`[EventDay] Card ${entry.cardNumber} hired status will be determined by MeOS internal database`);
+        console.log(`[EventDay] 📤 Submitting to MeOS:`, JSON.stringify(meosEntryParams, null, 2));
+        if (isHired) {
+          console.log(`[EventDay] 💳 RENTAL CARD DETECTED - will be marked in MeOS with cardFee=$${RENTAL_CARD_FEE}`);
+        } else {
+          console.log(`[EventDay] 👤 Personal card - no cardFee will be sent`);
+        }
 
         // Submit to MeOS
         const meosResult = await meosApi.createEntry(meosEntryParams);
         
         message.destroy(); // Clear loading message
 
-        if (meosResult.success) {
+      if (meosResult.success) {
           // Mark as submitted to MeOS
           localEntryService.markSubmittedToMeos(entry.id);
+          
+          // Log final entry state for debugging
+          const allEntries = localEntryService.getAllEntries();
+          const finalEntry = allEntries.find(e => e.id === entry.id);
+          console.log(`[EventDay] ✅ Check-in complete for ${entry.name.first} ${entry.name.last}: isHiredCard=${finalEntry?.isHiredCard}, card=${finalEntry?.cardNumber}`);
+          
           message.success(`✅ ${entry.name.first} ${entry.name.last} checked in and submitted to MeOS successfully!`);
         } else {
           // Show MeOS error but keep local check-in
@@ -1562,12 +1698,15 @@ const EventDayDashboard: React.FC = () => {
       console.log(`[EventDay] Retry submission for ${entry.name.first} ${entry.name.last}: className="${entry.className}", classId="${entry.classId}" -> MeOS classId=${classId}`);
       console.log(`[EventDay] Hired card debug for ${entry.name.first} ${entry.name.last}: isHiredCard=${entry.isHiredCard}, cardNumber=${entry.cardNumber}`);
       
+      // Check if this is a hired/rental card
+      const isHired = entry.isHiredCard || entry.issues?.needsRentalCard || false;
+      
       const meosEntryParams = {
         name: `${entry.name.first} ${entry.name.last}`,
         club: entry.club,
         classId: classId,
         cardNumber: parseInt(entry.cardNumber) || 0,
-        // Note: MeOS determines hired card status from its internal hired card database
+        cardFee: isHired ? RENTAL_CARD_FEE : undefined, // CRITICAL: Mark as hired card in MeOS
         phone: entry.phone,
         birthYear: entry.birthYear ? parseInt(entry.birthYear) : undefined,
         sex: entry.sex as 'M' | 'F' | undefined,
@@ -1575,7 +1714,9 @@ const EventDayDashboard: React.FC = () => {
       };
       
       console.log(`[EventDay] MeOS entry params:`, meosEntryParams);
-      console.log(`[EventDay] Card ${entry.cardNumber} hired status will be determined by MeOS internal database`);
+      if (isHired) {
+        console.log(`[EventDay] 💳 Card ${entry.cardNumber} is HIRED - will be marked in MeOS with $${RENTAL_CARD_FEE} fee`);
+      }
 
       // Submit to MeOS
       const meosResult = await meosApi.createEntry(meosEntryParams);
@@ -1851,6 +1992,206 @@ const EventDayDashboard: React.FC = () => {
     return clubs.sort((a, b) => a.name.localeCompare(b.name));
   }, [entries]);
   
+  // Live Results Service Status State
+  const [liveResultsServiceStatus, setLiveResultsServiceStatus] = useState<'checking' | 'running' | 'stopped' | 'error'>('checking');
+  const [resultsFilePath, setResultsFilePath] = useState<string>('');
+  const [serviceCheckInterval, setServiceCheckInterval] = useState<NodeJS.Timeout | null>(null);
+  
+  // Initialize results file path and check service status
+  useEffect(() => {
+    const userName = window.navigator.userAgent.includes('Windows') ? 'drads' : 'user';
+    const defaultPath = `C:\\Users\\${userName}\\Documents\\MeOS\\live_results.xml`;
+    setResultsFilePath(defaultPath);
+    
+    // Start checking service status
+    checkLiveResultsServiceStatus();
+    const interval = setInterval(checkLiveResultsServiceStatus, 5000); // Check every 5 seconds
+    setServiceCheckInterval(interval);
+    
+    return () => {
+      if (serviceCheckInterval) {
+        clearInterval(serviceCheckInterval);
+      }
+    };
+  }, []);
+  
+  // Check if the live results service is running
+  const checkLiveResultsServiceStatus = async () => {
+    try {
+      const response = await fetch('http://localhost:8001/health', { 
+        method: 'GET',
+        signal: AbortSignal.timeout(2000)
+      });
+      
+      if (response.ok) {
+        setLiveResultsServiceStatus('running');
+      } else {
+        setLiveResultsServiceStatus('stopped');
+      }
+    } catch (error) {
+      setLiveResultsServiceStatus('stopped');
+    }
+  };
+  
+  // Start the live results service (if possible)
+  const handleStartLiveResultsService = async () => {
+    try {
+      // Try to start the service - this would require backend support
+      // For now, just show instructions
+      Modal.info({
+        title: '🚀 Start Live Results Service',
+        width: 700,
+        content: (
+          <div>
+            <Alert
+              message="Service Start Instructions"
+              description="The live results service needs to be started manually from the command line."
+              type="info"
+              showIcon
+              style={{ marginBottom: '16px' }}
+            />
+            
+            <div style={{ padding: '16px', backgroundColor: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: '6px', marginBottom: '16px' }}>
+              <Text strong style={{ color: '#52c41a' }}>🚀 Windows Quick Start:</Text>
+              <ol style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                <li>Open Command Prompt or PowerShell</li>
+                <li>Navigate to: <code style={{ backgroundColor: '#f5f5f5', padding: '2px 4px' }}>C:\Users\drads\OneDrive\DVOA\MeOS Entry Build\meos-entry-build\public</code></li>
+                <li>Run: <code style={{ backgroundColor: '#f5f5f5', padding: '2px 4px' }}>run_server.bat</code></li>
+                <li>Keep the window open during the event</li>
+              </ol>
+            </div>
+            
+            <div style={{ padding: '16px', backgroundColor: '#f0f8ff', border: '1px solid #91caff', borderRadius: '6px' }}>
+              <Text strong style={{ color: '#1890ff' }}>📊 Service Features:</Text>
+              <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                <li>Serves XML files at <code>http://localhost:8001</code></li>
+                <li>Combines MeOS API + XML split data</li>
+                <li>Refreshes automatically every 15 seconds</li>
+                <li>Multi-screen support for event displays</li>
+              </ul>
+            </div>
+          </div>
+        )
+      });
+    } catch (error) {
+      message.error('Failed to start live results service');
+    }
+  };
+  
+  // Copy results file path to clipboard
+  const handleCopyResultsPath = async () => {
+    try {
+      await navigator.clipboard.writeText(resultsFilePath);
+      message.success('📋 Results file path copied to clipboard!');
+    } catch (error) {
+      message.error('Failed to copy path to clipboard');
+    }
+  };
+  
+  // Export live runner data for results integration
+  const handleExportLiveData = async () => {
+    try {
+      console.log('[EventDay] Exporting live runner data...');
+      
+      // Get live runner data from MeOS API
+      const liveRunners = await meosApi.getLiveRunnerData();
+      console.log(`[EventDay] Retrieved ${liveRunners.length} live runners`);
+      
+      // Combine with local entries for comprehensive data
+      const combinedData = [];
+      
+      // Add checked-in local entries
+      const checkedInEntries = entries.filter(entry => entry.status === 'checked-in');
+      checkedInEntries.forEach(entry => {
+        combinedData.push({
+          id: entry.id,
+          name: {
+            first: entry.name.first,
+            last: entry.name.last
+          },
+          fullName: `${entry.name.first} ${entry.name.last}`,
+          club: entry.club,
+          cardNumber: entry.cardNumber,
+          className: entry.className,
+          classId: entry.classId,
+          status: entry.submittedToMeosAt ? 'in_meos' : 'checked_in_local',
+          dataSource: 'portal_entries',
+          submittedAt: entry.submittedToMeosAt,
+          checkedInAt: entry.checkedInAt
+        });
+      });
+      
+      // Add MeOS API runners
+      liveRunners.forEach(runner => {
+        combinedData.push({
+          ...runner,
+          dataSource: 'meos_api'
+        });
+      });
+      
+      // Create export data structure
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        totalRunners: combinedData.length,
+        sources: {
+          portalEntries: checkedInEntries.length,
+          meosApi: liveRunners.length
+        },
+        runners: combinedData,
+        eventInfo: {
+          name: 'Live Event Data Export',
+          date: new Date().toISOString().split('T')[0]
+        }
+      };
+      
+      // Save to file for debugging/inspection
+      const dataStr = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `live_runner_data_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      // Show success message with data summary
+      Modal.success({
+        title: '📊 Live Runner Data Exported',
+        width: 600,
+        content: (
+          <div>
+            <p><strong>✅ Successfully exported live runner data</strong></p>
+            
+            <div style={{ padding: '12px', backgroundColor: '#f0f8ff', border: '1px solid #91caff', borderRadius: '6px', margin: '12px 0' }}>
+              <Text strong>Data Sources:</Text>
+              <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                <li>Portal Entries: {checkedInEntries.length} checked-in runners</li>
+                <li>MeOS API: {liveRunners.length} live runners</li>
+                <li>Total: {combinedData.length} runners</li>
+              </ul>
+            </div>
+            
+            <div style={{ padding: '12px', backgroundColor: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: '6px' }}>
+              <Text strong>Integration Ready:</Text>
+              <p style={{ margin: '8px 0' }}>This data combines portal check-ins with MeOS live status for comprehensive results coverage.</p>
+              <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                <li>Runners checked-in via portal but not yet in MeOS XML</li>
+                <li>Runners with current status from MeOS API</li>
+                <li>Real-time integration data for live results display</li>
+              </ul>
+            </div>
+          </div>
+        )
+      });
+      
+    } catch (error) {
+      console.error('[EventDay] Failed to export live data:', error);
+      message.error('Failed to export live runner data');
+    }
+  };
+  
   // Live Results Integration Functions
   const handleSetupLiveResults = () => {
     // Use a default path - user can customize if needed
@@ -1871,7 +2212,7 @@ const EventDayDashboard: React.FC = () => {
           />
           
           <div style={{ marginBottom: '20px' }}>
-            <Text strong style={{ fontSize: '16px', color: '#1890ff' }}>📂 Recommended MeOS XML Export Path:</Text>
+            <Text strong style={{ fontSize: '16px', color: '#1890ff' }}>📂 Default MeOS XML Export Path:</Text>
             <div style={{ 
               background: '#f5f5f5', 
               padding: '12px', 
@@ -1879,21 +2220,25 @@ const EventDayDashboard: React.FC = () => {
               margin: '8px 0',
               fontFamily: 'monospace',
               fontSize: '12px',
-              wordBreak: 'break-all'
+              wordBreak: 'break-all',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
             }}>
-              {recommendedPath}
+              <span>{resultsFilePath}</span>
+              <Button 
+                type="primary"
+                size="small"
+                icon={<CopyOutlined />}
+                onClick={handleCopyResultsPath}
+                style={{ marginLeft: '8px' }}
+              >
+                Copy
+              </Button>
             </div>
             <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
-              <Text type="secondary">Example: </Text>
-              <Text code style={{ fontSize: '11px' }}>{examplePath}</Text>
+              <Text type="secondary">This path is automatically customized for your system.</Text>
             </div>
-            <Button 
-              type="link" 
-              size="small"
-              onClick={() => navigator.clipboard.writeText(examplePath)}
-            >
-              📋 Copy Example Path
-            </Button>
           </div>
           
           <div style={{ padding: '16px', backgroundColor: '#fff7e6', border: '1px solid #ffd591', borderRadius: '6px', marginBottom: '16px' }}>
@@ -2117,24 +2462,39 @@ const EventDayDashboard: React.FC = () => {
     {
       title: 'Card',
       key: 'card',
-      width: 120,
+      width: 100,
       render: (_, entry) => {
         const issues = getEntryIssues(entry);
+        
+        // Clean card number - remove any # prefix if present in data
+        const cleanCardNumber = entry.cardNumber.replace(/^#/, '');
+        
+        // Debug log for rental card detection
+        if (entry.name.first === 'David' && entry.name.last === 'Bal') {
+          console.log(`[Table] David Bal card render: isHiredCard=${entry.isHiredCard}, cardNumber=${entry.cardNumber}, cleanCard=${cleanCardNumber}`);
+        }
         
         if (issues.needsRentalCard) {
           return <Tag color="orange" icon={<IdcardOutlined />}>Card Needed</Tag>;
         }
         
+        // Show hired card numbers in RED to remind staff to collect them
+        if (entry.isHiredCard) {
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Text strong style={{ color: '#ff4d4f', fontSize: '14px' }}>
+                {cleanCardNumber}
+              </Text>
+              <Tag color="red" style={{ fontSize: '10px', padding: '0 4px' }}>RENTAL</Tag>
+            </div>
+          );
+        }
+        
         return (
           <div style={{ display: 'flex', alignItems: 'center' }}>
-            <Tag color={entry.isHiredCard ? "purple" : "green"} icon={<CheckCircleOutlined />}>
-              {entry.cardNumber}
+            <Tag color="green" icon={<CheckCircleOutlined />}>
+              {cleanCardNumber}
             </Tag>
-            <HiredCardStatus 
-              cardNumber={entry.cardNumber} 
-              isHiredCard={entry.isHiredCard || false} 
-              inline={true}
-            />
           </div>
         );
       },
@@ -2328,12 +2688,39 @@ const EventDayDashboard: React.FC = () => {
               }} />
               <Text strong>Live Results Integration</Text>
               <Tag color="blue">Multi-Source Display</Tag>
+              
+              {/* Service Status Indicator */}
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '4px',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                backgroundColor: liveResultsServiceStatus === 'running' ? '#f6ffed' : '#fff2f0',
+                border: `1px solid ${liveResultsServiceStatus === 'running' ? '#b7eb8f' : '#ffccc7'}`
+              }}>
+                <div style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  backgroundColor: liveResultsServiceStatus === 'running' ? '#52c41a' : 
+                                  liveResultsServiceStatus === 'checking' ? '#faad14' : '#f5222d'
+                }}></div>
+                <Text style={{ 
+                  fontSize: '11px', 
+                  color: liveResultsServiceStatus === 'running' ? '#52c41a' : '#666',
+                  fontWeight: 500
+                }}>
+                  {liveResultsServiceStatus === 'running' ? 'Service Running' : 
+                   liveResultsServiceStatus === 'checking' ? 'Checking...' : 'Service Offline'}
+                </Text>
+              </div>
             </Space>
           </Col>
           <Col>
             <Space>
               <Button 
-                type="primary" 
+                type={liveResultsServiceStatus === 'running' ? 'default' : 'primary'}
                 icon={<TrophyOutlined />}
                 onClick={handleSetupLiveResults}
               >
@@ -2342,9 +2729,26 @@ const EventDayDashboard: React.FC = () => {
               <Button 
                 icon={<DatabaseOutlined />}
                 onClick={handleOpenLiveResults}
+                type={liveResultsServiceStatus === 'running' ? 'primary' : 'default'}
               >
                 Open Results Display
               </Button>
+              <Button 
+                icon={<CloudDownloadOutlined />}
+                onClick={handleExportLiveData}
+                type="dashed"
+              >
+                Export Live Data
+              </Button>
+              {liveResultsServiceStatus !== 'running' && (
+                <Button 
+                  icon={<UsbOutlined />}
+                  onClick={handleStartLiveResultsService}
+                  type="dashed"
+                >
+                  Start Service
+                </Button>
+              )}
             </Space>
           </Col>
         </Row>
@@ -2375,20 +2779,47 @@ const EventDayDashboard: React.FC = () => {
           <Col>
             <Space>
               {!cardReaderStatus.connected ? (
-                <Button 
-                  type="primary" 
-                  icon={<IdcardOutlined />}
-                  onClick={handleConnectCardReader}
-                >
-                  Connect Reader
-                </Button>
+                <>
+                  <Button 
+                    type="primary" 
+                    icon={<IdcardOutlined />}
+                    onClick={handleConnectCardReader}
+                  >
+                    Connect Reader
+                  </Button>
+                  <Button 
+                    icon={<WarningOutlined />}
+                    onClick={handleRunDiagnostics}
+                    type="dashed"
+                  >
+                    Diagnose
+                  </Button>
+                  <Button 
+                    icon={<InfoCircleOutlined />}
+                    onClick={handleShowConnectionHelp}
+                    type="text"
+                    size="small"
+                  >
+                    Help
+                  </Button>
+                </>
               ) : (
-                <Button 
-                  icon={<CloseOutlined />}
-                  onClick={handleDisconnectCardReader}
-                >
-                  Disconnect
-                </Button>
+                <>
+                  <Button 
+                    icon={<CloseOutlined />}
+                    onClick={handleDisconnectCardReader}
+                  >
+                    Disconnect
+                  </Button>
+                  <Button 
+                    icon={<CheckOutlined />}
+                    onClick={handleTestCardRead}
+                    type="dashed"
+                    size="small"
+                  >
+                    Test Card
+                  </Button>
+                </>
               )}
             </Space>
           </Col>
@@ -3126,7 +3557,7 @@ const EventDayDashboard: React.FC = () => {
                       valuePropName="checked"
                       label=" "
                     >
-                      <Checkbox>Hired</Checkbox>
+                      <Checkbox><Text strong style={{ color: '#ff4d4f' }}>RENTAL</Text></Checkbox>
                     </Form.Item>
                   </Col>
                 </Row>
@@ -3518,7 +3949,7 @@ const EventDayDashboard: React.FC = () => {
                       valuePropName="checked"
                       label=" "
                     >
-                      <Checkbox>Hired Card</Checkbox>
+                      <Checkbox><Text strong style={{ color: '#ff4d4f' }}>RENTAL Card</Text></Checkbox>
                     </Form.Item>
                   </Col>
                 </Row>

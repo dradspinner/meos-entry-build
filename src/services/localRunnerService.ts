@@ -35,14 +35,12 @@ class LocalRunnerService {
     if (typeof window !== 'undefined') {
       window.addEventListener('storage', (e) => {
         if (e.key === this.STORAGE_KEY && e.newValue !== null) {
-          console.log('[LocalRunner] Detected external localStorage change, refreshing...');
           this.loadRunners();
         }
       });
       
       // Also listen for custom events (for same-tab updates)
       window.addEventListener('localRunnerDatabaseUpdate', () => {
-        console.log('[LocalRunner] Detected local database update event, refreshing...');
         this.loadRunners();
       });
     }
@@ -60,10 +58,8 @@ class LocalRunnerService {
           ...runner,
           lastUsed: new Date(runner.lastUsed)
         }));
-        console.log(`[LocalRunner] Loaded ${this.runners.length} runners from local storage`);
       }
     } catch (error) {
-      console.error('[LocalRunner] Error loading runners:', error);
       this.runners = [];
     }
   }
@@ -72,11 +68,8 @@ class LocalRunnerService {
    * Refresh runners from localStorage (public method to reload data)
    */
   refreshFromStorage(): void {
-    console.log(`[LocalRunner] Refreshing runners from localStorage...`);
     this.loadRunners();
-    console.log(`[LocalRunner] Refresh complete: now have ${this.runners.length} runners`);
   }
-
   /**
    * Save runners to localStorage and cloud file with validation
    */
@@ -84,20 +77,91 @@ class LocalRunnerService {
     try {
       // Validate runner count before saving
       if (this.runners.length === 0) {
-        console.warn('[LocalRunner] Warning: Attempting to save empty runner database. This might be a data loss event.');
       }
       
-      // Save to localStorage as backup
+      // Create backup in localStorage before overwriting (keeps last 3 backups)
+      this.createBackup();
+      
+      // Save to localStorage
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.runners));
-      console.log(`[LocalRunner] Saved ${this.runners.length} runners to localStorage`);
       
       // Auto-save to cloud if enabled
       if (this.autoSaveEnabled) {
-        // Additional validation before cloud save
         this.saveToCloudWithValidation();
       }
     } catch (error) {
-      console.error('[LocalRunner] Error saving runners:', error);
+    }
+  }
+
+  /**
+   * Create a timestamped backup in localStorage (keeps last 3)
+   */
+  private createBackup(): void {
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupKey = `${this.STORAGE_KEY}_backup_${timestamp}`;
+      
+      // Save current data as backup
+      if (this.runners.length > 0) {
+        localStorage.setItem(backupKey, JSON.stringify(this.runners));
+      }
+      
+      // Clean up old backups (keep only last 3)
+      const allKeys = Object.keys(localStorage);
+      const backupKeys = allKeys
+        .filter(k => k.startsWith(`${this.STORAGE_KEY}_backup_`))
+        .sort()
+        .reverse(); // Newest first
+      
+      // Remove old backups (keep only 3 most recent)
+      if (backupKeys.length > 3) {
+        backupKeys.slice(3).forEach(key => {
+          localStorage.removeItem(key);
+        });
+      }
+    } catch (error) {
+    }
+  }
+
+  /**
+   * List available backups
+   */
+  listBackups(): string[] {
+    const allKeys = Object.keys(localStorage);
+    return allKeys
+      .filter(k => k.startsWith(`${this.STORAGE_KEY}_backup_`))
+      .sort()
+      .reverse();
+  }
+
+  /**
+   * Restore from a backup
+   */
+  restoreFromBackup(backupKey: string): boolean {
+    try {
+      const backup = localStorage.getItem(backupKey);
+      if (!backup) {
+        return false;
+      }
+      
+      const backupData = JSON.parse(backup);
+      
+      // Save current data as emergency backup before restore
+      if (this.runners.length > 0) {
+        const emergencyKey = `${this.STORAGE_KEY}_emergency_before_restore`;
+        localStorage.setItem(emergencyKey, JSON.stringify(this.runners));
+      }
+      
+      // Restore the backup
+      this.runners = backupData.map((runner: any) => ({
+        ...runner,
+        lastUsed: new Date(runner.lastUsed)
+      }));
+      
+      this.saveRunners();
+      return true;
+    } catch (error) {
+      return false;
     }
   }
 
@@ -146,11 +210,8 @@ class LocalRunnerService {
 
     const runner = this.runners.find(r => r.cardNumber === cardNum);
     if (runner) {
-      console.log(`[LocalRunner] Found runner by card ${cardNum}: ${runner.name.first} ${runner.name.last}`);
       return runner;
     }
-
-    console.log(`[LocalRunner] No runner found with card ${cardNum}`);
     return null;
   }
 
@@ -177,7 +238,6 @@ class LocalRunnerService {
       existingRunner.timesUsed += 1;
       
       this.saveRunners();
-      console.log(`[LocalRunner] Updated runner: ${existingRunner.name.first} ${existingRunner.name.last} (used ${existingRunner.timesUsed} times)`);
       return existingRunner;
     } else {
       // Add new runner
@@ -189,7 +249,6 @@ class LocalRunnerService {
       };
       this.runners.push(newRunner);
       this.saveRunners();
-      console.log(`[LocalRunner] Added new runner: ${newRunner.name.first} ${newRunner.name.last}`);
       return newRunner;
     }
   }

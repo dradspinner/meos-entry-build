@@ -1,7 +1,6 @@
 import React from 'react';
-import { Layout, Dropdown, Button, message } from 'antd';
-import { SettingOutlined, DatabaseOutlined, TrophyOutlined } from '@ant-design/icons';
-import type { MenuProps } from 'antd';
+import { Layout, Button, message } from 'antd';
+import { TrophyOutlined } from '@ant-design/icons';
 import logoImage from '../assets/dvoa_logo.png';
 
 const { Header: AntHeader } = Layout;
@@ -10,29 +9,34 @@ interface HeaderProps {
   title?: string;
 }
 
+// Store window reference outside component to persist across renders
+let liveResultsWindow: Window | null = null;
+
 const Header: React.FC<HeaderProps> = ({ title = 'MeOS Event Management System' }) => {
-  const handleOpenDatabaseManager = () => {
-    // Open database manager in a new window/tab
-    const dbManagerUrl = window.location.origin + '/database_manager.html';
-    window.open(dbManagerUrl, 'database-manager', 'width=1000,height=800,scrollbars=yes,resizable=yes');
-    message.info('Opening Database Manager...');
-  };
 
   const handleOpenLiveResults = () => {
     // Open live results in a new window/tab
+    // Note: The Python server is automatically started by the Electron app
     const liveResultsUrl = window.location.origin + '/live_results.html';
-    window.open(liveResultsUrl, 'live-results', 'width=1400,height=900,scrollbars=yes,resizable=yes');
+    
+    // Check if window is still open
+    if (liveResultsWindow && !liveResultsWindow.closed) {
+      // Window already exists - just focus it, DON'T reopen
+      try {
+        liveResultsWindow.focus();
+      } catch (e) {
+        // Window may have been closed, try opening again
+        liveResultsWindow = null;
+      }
+      return;
+    }
+    
+    // Open new window only if not already open
+    // Using named window without size parameters to preserve position
+    liveResultsWindow = window.open(liveResultsUrl, 'live-results');
     message.info('Opening Live Results Display...');
   };
 
-  const toolsMenuItems: MenuProps['items'] = [
-    {
-      key: 'database-manager',
-      label: 'Runner Database Manager',
-      icon: <DatabaseOutlined />,
-      onClick: handleOpenDatabaseManager,
-    },
-  ];
 
   return (
     <AntHeader style={{ 
@@ -70,16 +74,6 @@ const Header: React.FC<HeaderProps> = ({ title = 'MeOS Event Management System' 
         >
           Live Results
         </Button>
-        <Dropdown menu={{ items: toolsMenuItems }} placement="bottomRight">
-          <Button 
-            icon={<SettingOutlined />} 
-            type="text" 
-            size="large"
-            title="Tools & Settings"
-          >
-            Tools
-          </Button>
-        </Dropdown>
         
         <div style={{ 
           fontSize: '14px', 

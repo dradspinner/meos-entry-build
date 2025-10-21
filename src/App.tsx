@@ -6,9 +6,10 @@ import Dashboard from './components/Dashboard';
 import EventBuilder from './components/EventBuilder';
 import EventDayOps from './components/EventDayOps';
 import EventDayHome from './components/EventDayHome';
+import WebSerialTest from './components/WebSerialTest';
 import './styles/professional.css';
 
-type CurrentView = 'dashboard' | 'eventBuilder' | 'eventDayOps' | 'eventDayDashboard';
+type CurrentView = 'dashboard' | 'eventBuilder' | 'eventDayOps' | 'eventDayDashboard' | 'webSerialTest';
 
 function App() {
   const [currentView, setCurrentView] = useState<CurrentView>('dashboard');
@@ -44,6 +45,13 @@ function App() {
         return (
           <EventDayHome 
             onBack={() => setCurrentView('eventDayOps')}
+            onNavigateToWebSerialTest={() => setCurrentView('webSerialTest')}
+          />
+        );
+      case 'webSerialTest':
+        return (
+          <WebSerialTest 
+            onBack={() => setCurrentView('dashboard')}
           />
         );
       default:

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Simple HTTP server for MeOS Live Results
 Serves the HTML files and provides access to the MeOS XML splits file
@@ -8,8 +9,18 @@ import http.server
 import socketserver
 import json
 import os
+import sys
 import urllib.parse
 from pathlib import Path
+
+# Fix Windows console encoding for emoji support
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except:
+        # Fallback: disable emoji if reconfigure fails
+        pass
 
 class MeOSResultsHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):

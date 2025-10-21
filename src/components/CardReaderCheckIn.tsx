@@ -33,6 +33,7 @@ import { localEntryService, type LocalEntry } from '../services/localEntryServic
 import { meosHiredCardService } from '../services/meosHiredCardService';
 import { meosApi } from '../services/meosApi';
 import { meosClassService } from '../services/meosClassService';
+import { RENTAL_CARD_FEE } from '../constants';
 import SameDayRegistration from './SameDayRegistration';
 
 const { Title, Text } = Typography;
@@ -214,23 +215,31 @@ const CardReaderCheckIn: React.FC<CardReaderCheckInProps> = ({
     // Convert local entry to MeOS entry format with proper class mapping
     const classId = await getMeosClassId(entry.className, entry.classId);
     
+    // CRITICAL: Check if this is a hired/rental card
+    const isHired = entry.isHiredCard || entry.issues?.needsRentalCard || false;
+    
     console.log(`[CardReaderCheckIn] Converting entry: className="${entry.className}", classId="${entry.classId}" -> MeOS classId=${classId}`);
-    console.log(`[CardReaderCheckIn] Hired card debug: isHiredCard=${entry.isHiredCard}, cardNumber=${entry.cardNumber}`);
+    console.log(`[CardReaderCheckIn] Hired card check: isHiredCard=${entry.isHiredCard}, needsRentalCard=${entry.issues?.needsRentalCard}, isHired=${isHired}`);
+    console.log(`[CardReaderCheckIn] Card number: ${entry.cardNumber}`);
     
     const meosEntryParams = {
       name: `${entry.name.first} ${entry.name.last}`,
       club: entry.club,
       classId: classId,
       cardNumber: parseInt(entry.cardNumber) || 0,
-      // Note: MeOS determines hired card status from its internal hired card database
+      cardFee: isHired ? RENTAL_CARD_FEE : undefined, // CRITICAL: Mark as hired card in MeOS
       phone: entry.phone,
       birthYear: entry.birthYear ? parseInt(entry.birthYear) : undefined,
       sex: entry.sex as 'M' | 'F' | undefined,
       nationality: entry.nationality,
     };
     
-    console.log(`[CardReaderCheckIn] MeOS entry params:`, meosEntryParams);
-    console.log(`[CardReaderCheckIn] Card ${entry.cardNumber} hired status will be determined by MeOS internal database`);
+    console.log(`[CardReaderCheckIn] 📤 Submitting to MeOS:`, JSON.stringify(meosEntryParams, null, 2));
+    if (isHired) {
+      console.log(`[CardReaderCheckIn] 💳 RENTAL CARD DETECTED - will be marked in MeOS with cardFee=$${RENTAL_CARD_FEE}`);
+    } else {
+      console.log(`[CardReaderCheckIn] 👤 Personal card - no cardFee will be sent`);
+    }
 
     // Submit to MeOS
     const meosResult = await meosApi.createEntry(meosEntryParams);

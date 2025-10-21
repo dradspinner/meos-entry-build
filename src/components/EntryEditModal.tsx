@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Form, Input, Select, Row, Col, Space, Button, Typography, message, Alert } from 'antd';
+import { Modal, Form, Input, Select, Row, Col, Space, Button, Typography, message, Alert, Checkbox } from 'antd';
 import { IdcardOutlined, LoginOutlined } from '@ant-design/icons';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
 import { meosClassService } from '../services/meosClassService';
 import { meosApi } from '../services/meosApi';
 import { sportIdentService, type SICardReadEvent } from '../services/sportIdentService';
+import { RENTAL_CARD_FEE } from '../constants';
 
 const { Text } = Typography;
 const { Option } = Select;
@@ -29,7 +30,7 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
     if (!open) return;
     (async () => {
       try {
-        const cls = await meosClassService.getAllClasses();
+        const cls = await meosClassService.getClasses();
         setClasses(cls);
       } catch (e) {
         // fall back to common set
@@ -48,20 +49,34 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
 
   useEffect(() => {
     if (open && entry) {
+      // If classId is not in the classes list, try to find by className
+      let classIdToUse = entry.classId;
+      if (entry.classId && classes.length > 0) {
+        const classExists = classes.find(c => c.id === entry.classId);
+        if (!classExists && entry.className) {
+          // Try to find by name
+          const classByName = classes.find(c => c.name.toLowerCase() === entry.className.toLowerCase());
+          if (classByName) {
+            classIdToUse = classByName.id;
+          }
+        }
+      }
+      
       form.setFieldsValue({
         firstName: entry.name.first,
         lastName: entry.name.last,
         club: entry.club,
-        classId: entry.classId,
+        classId: classIdToUse,
         cardNumber: entry.cardNumber,
         birthYear: entry.birthYear,
         sex: entry.sex,
         phone: entry.phone,
+        email: (entry as any).email,
+        nationality: entry.nationality,
+        isHiredCard: entry.isHiredCard || false,
       });
-    } else {
-      form.resetFields();
     }
-  }, [open, entry, form]);
+  }, [open, entry, form, classes]);
 
   // Listen to SI card reader while modal is open to auto-fill card number
   useEffect(() => {
@@ -93,16 +108,19 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
     const values = await form.validateFields();
     setSaving(true);
     try {
-      const updated = localEntryService.updateEntry(entry.id, {
-        name: { first: values.firstName, last: values.lastName },
-        club: values.club,
-        classId: values.classId,
-        className: classes.find(c => c.id === values.classId)?.name || entry.className,
-        cardNumber: values.cardNumber,
-        birthYear: values.birthYear,
-        sex: values.sex,
-        phone: values.phone,
-      });
+    const updated = localEntryService.updateEntry(entry.id, {
+      name: { first: values.firstName, last: values.lastName },
+      club: values.club,
+      classId: values.classId,
+      className: classes.find(c => c.id === values.classId)?.name || entry.className,
+      cardNumber: values.cardNumber,
+      birthYear: values.birthYear,
+      sex: values.sex,
+      phone: values.phone,
+      email: values.email,
+      nationality: values.nationality,
+      isHiredCard: values.isHiredCard || false,
+    });
       if (updated) {
         onUpdated(updated);
         message.success('Entry updated');
@@ -115,6 +133,11 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
   const handleCheckIn = async () => {
     if (!entry) return;
     const values = await form.validateFields();
+    
+    // Use the checkbox value as the source of truth for hired card status
+    const isHired = values.isHiredCard || false;
+    console.log(`[EntryEditModal] Rental card checkbox: isHiredCard=${isHired}`);;
+    
     const updated = localEntryService.updateEntry(entry.id, {
       name: { first: values.firstName, last: values.lastName },
       club: values.club,
@@ -124,6 +147,9 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
       birthYear: values.birthYear,
       sex: values.sex,
       phone: values.phone,
+      email: values.email,
+      nationality: values.nationality,
+      isHiredCard: isHired, // Set hired card flag from checkbox
     });
     if (updated) {
       const checkedIn = localEntryService.checkInEntry(updated.id, values.cardNumber);
@@ -142,17 +168,28 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
             return;
           }
 
-          const natNum = parseInt((entry?.nationality as any) || '0', 10);
+          const natNum = parseInt(values.nationality || '0', 10);
           const sexVal = (!natNum || natNum <= 1) ? values.sex : undefined;
+          
+          // isHired already set from checkbox above
+          
+          console.log(`[EntryEditModal] 📤 Submitting to MeOS: ${values.firstName} ${values.lastName}, card ${values.cardNumber}, isHired=${isHired}`);
+          if (isHired) {
+            console.log(`[EntryEditModal] 💳 RENTAL CARD DETECTED - will be marked in MeOS with cardFee=$${RENTAL_CARD_FEE}`);
+          } else {
+            console.log(`[EntryEditModal] 👤 Personal card - no cardFee will be sent`);
+          }
+          
           await meosApi.createEntry({
             name: `${values.firstName} ${values.lastName}`.trim(),
             club: values.club,
             classId: meosClass.id,
             cardNumber: parseInt(values.cardNumber) || 0,
+            cardFee: isHired ? RENTAL_CARD_FEE : undefined, // CRITICAL: Mark as hired card in MeOS
             phone: values.phone,
             birthYear: values.birthYear ? parseInt(values.birthYear) : undefined,
             sex: sexVal as any,
-            nationality: entry?.nationality
+            nationality: values.nationality
           });
           localEntryService.markSubmittedToMeos(checkedIn.id);
           message.success(`Checked in and submitted to MeOS: ${checkedIn.name.first} ${checkedIn.name.last}`);
@@ -199,7 +236,8 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
                 name="firstName" 
                 rules={[{
                   validator: async (_, value) => {
-                    const natNum = parseInt((entry?.nationality as any) || '0', 10);
+                    const natVal = form.getFieldValue('nationality');
+                    const natNum = parseInt(natVal || '0', 10);
                     if (!natNum || natNum <= 1) {
                       if (!value || `${value}`.trim() === '') {
                         return Promise.reject(new Error('First Name is required unless Nationality > 1'));
@@ -255,9 +293,23 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
             </Col>
           </Row>
           <Row gutter={16}>
+            <Col span={24}>
+              <Form.Item name="isHiredCard" valuePropName="checked">
+                <Checkbox>
+                  <Text strong style={{ color: '#ff4d4f' }}>This is a RENTAL card (must be collected)</Text>
+                </Checkbox>
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
             <Col span={12}>
               <Form.Item label="Phone" name="phone">
                 <Input />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Email" name="email">
+                <Input type="email" />
               </Form.Item>
             </Col>
           </Row>
@@ -268,7 +320,8 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
                 name="birthYear"
                 rules={[{
                   validator: async (_, value) => {
-                    const natNum = parseInt((entry?.nationality as any) || '0', 10);
+                    const natVal = form.getFieldValue('nationality');
+                    const natNum = parseInt(natVal || '0', 10);
                     if (!natNum || natNum <= 1) {
                       if (!value || `${value}`.trim() === '') {
                         return Promise.reject(new Error('Birth Year is required unless Nationality > 1'));
@@ -279,6 +332,11 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
                 }]}
               >
                 <Input />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Nationality (for groups)" name="nationality">
+                <Input placeholder="Leave empty or 0 for individual, 2+ for group" />
               </Form.Item>
             </Col>
           </Row>

@@ -80,6 +80,12 @@ class SportIdentService {
     }
 
     try {
+      console.log('[SI Reader] Requesting serial port access...');
+      console.log('[SI Reader] Filters:', [
+        { usbVendorId: this.BSF8_VENDOR_ID, usbProductId: this.BSF8_PRODUCT_ID },
+        { usbVendorId: 0x10C4 },
+      ]);
+      
       // Request port with BSF8 USB filters
       this.port = await navigator.serial.requestPort({
         filters: [
@@ -87,6 +93,8 @@ class SportIdentService {
           { usbVendorId: 0x10C4 }, // Silicon Labs (broader filter)
         ]
       });
+      
+      console.log('[SI Reader] Port selected:', this.port?.getInfo());
 
       // Open the port
       await this.port.open({
@@ -116,8 +124,11 @@ class SportIdentService {
       this.startReading();
 
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error('[SI Reader] Failed to connect:', error);
+      console.error('[SI Reader] Error name:', error?.name);
+      console.error('[SI Reader] Error message:', error?.message);
+      console.error('[SI Reader] Error code:', error?.code);
       this.connected = false;
       this.status.connected = false;
       throw error;
@@ -672,6 +683,133 @@ class SportIdentService {
     });
 
     console.log('[SI Reader] Test card read:', testCard);
+  }
+
+  /**
+   * Run comprehensive diagnostics to identify connection issues
+   */
+  async runDiagnostics(): Promise<{
+    webSerialSupported: boolean;
+    availablePorts: any[];
+    electronPermissions: boolean;
+    browserInfo: string;
+    errors: string[];
+    recommendations: string[];
+  }> {
+    const results = {
+      webSerialSupported: false,
+      availablePorts: [],
+      electronPermissions: false,
+      browserInfo: '',
+      errors: [] as string[],
+      recommendations: [] as string[]
+    };
+
+    try {
+      // Test 1: Web Serial API Support
+      results.webSerialSupported = this.isWebSerialSupported();
+      if (!results.webSerialSupported) {
+        results.errors.push('Web Serial API not supported');
+        results.recommendations.push('Use Chrome or Edge browser');
+      }
+
+      // Test 2: Browser Information
+      results.browserInfo = navigator.userAgent;
+      console.log('[SI Diagnostics] Browser:', results.browserInfo);
+
+      // Test 3: Available Serial Ports (requires user gesture)
+      if (results.webSerialSupported) {
+        try {
+          // This will show the port selection dialog
+          const port = await navigator.serial.requestPort({
+            filters: [
+              { usbVendorId: this.BSF8_VENDOR_ID, usbProductId: this.BSF8_PRODUCT_ID },
+              { usbVendorId: 0x10C4 },
+            ]
+          });
+          
+          if (port) {
+            results.availablePorts.push({
+              connected: true,
+              info: port.getInfo()
+            });
+            
+            // Close the port immediately since this is just a test
+            try {
+              await port.close();
+            } catch (e) {
+              // Port might not be open, ignore
+            }
+          }
+        } catch (error: any) {
+          if (error.message.includes('No port selected')) {
+            results.errors.push('No SportIdent reader detected or user canceled');
+            results.recommendations.push('1. Check USB connection');
+            results.recommendations.push('2. Install Silicon Labs CP210x drivers');
+            results.recommendations.push('3. Check Windows Device Manager');
+          } else {
+            results.errors.push(`Port selection failed: ${error.message}`);
+          }
+        }
+      }
+
+      // Test 4: Check for common browser-specific issues
+      if (navigator.userAgent.includes('Firefox')) {
+        results.errors.push('Firefox does not support Web Serial API');
+        results.recommendations.push('Switch to Chrome or Edge');
+      }
+
+      if (!navigator.userAgent.includes('Chrome') && !navigator.userAgent.includes('Edge')) {
+        results.recommendations.push('For best compatibility, use Chrome or Edge');
+      }
+
+      // Test 5: Check if running in Electron
+      const isElectron = !!(window as any).electronAPI || navigator.userAgent.includes('Electron');
+      if (isElectron) {
+        results.electronPermissions = true;
+        console.log('[SI Diagnostics] Running in Electron with serial permissions');
+      } else {
+        results.recommendations.push('Web Serial API permissions may need to be granted manually');
+      }
+
+    } catch (error: any) {
+      results.errors.push(`Diagnostics failed: ${error.message}`);
+    }
+
+    return results;
+  }
+
+  /**
+   * Get detailed connection error information
+   */
+  getConnectionHelp(): string[] {
+    return [
+      '🔧 SportIdent Connection Troubleshooting:',
+      '',
+      '1. Hardware Check:',
+      '   • SI reader plugged into USB port',
+      '   • Try different USB port',
+      '   • Check cable connection',
+      '',
+      '2. Windows Device Manager:',
+      '   • Look for "Silicon Labs CP210x" under Ports',
+      '   • Install drivers if missing or has warning',
+      '',
+      '3. Software Check:',
+      '   • Close MeOS if running',
+      '   • Close other SI software',
+      '   • Restart this application',
+      '',
+      '4. Browser Requirements:',
+      '   • Chrome or Edge required',
+      '   • Web Serial API enabled',
+      '   • No Firefox or Safari',
+      '',
+      '5. Emergency Options:',
+      '   • Use MeOS SI tab directly',
+      '   • Manual card number entry',
+      '   • Test card read function'
+    ];
   }
 }
 

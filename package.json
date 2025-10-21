@@ -12,7 +12,7 @@
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
     "test:coverage": "vitest --coverage",
-    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5174 && electron .\"",
     "electron:build": "npm run build && electron-builder",
     "electron:dist": "npm run build && electron-builder --publish=never",
     "pack:win": "npm run build && electron-builder --win --x64",
@@ -27,6 +27,7 @@
     "axios": "^1.12.2",
     "better-sqlite3": "^12.2.0",
     "dayjs": "^1.11.18",
+    "lru-cache": "^11.2.2",
     "papaparse": "^5.5.3",
     "react": "18.3.1",
     "react-dom": "18.3.1",
@@ -78,11 +79,16 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64", "ia32"]
+          "arch": [
+            "x64",
+            "ia32"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "public/icon.ico",

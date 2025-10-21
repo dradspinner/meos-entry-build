@@ -193,14 +193,20 @@
             color: #666;
         }
         
-        .winner-row {
-            background: #FFFF99 !important;
-            border-left: 8px solid #FFD700 !important;
+        .gold-row {
+            background: #FFD700 !important; /* Gold */
+            border-left: 8px solid #B8860B !important; /* Dark gold */
+            font-weight: bold;
         }
         
-        .podium-row {
-            background: #E6FFE6 !important;
-            border-left: 6px solid #00AA00 !important;
+        .silver-row {
+            background: #C0C0C0 !important; /* Silver */
+            border-left: 6px solid #808080 !important; /* Dark silver */
+        }
+        
+        .bronze-row {
+            background: #CD7F32 !important; /* Bronze */
+            border-left: 6px solid #8B4513 !important; /* Dark bronze */
         }
         
         .screen-container {
@@ -223,7 +229,14 @@
         <span class="divider">•</span>
         <span id="lastUpdate">Checking API...</span>
         <span class="divider">•</span>
-        <span style="font-size: 11px; opacity: 0.8;">15s refresh</span>
+        <label for="refreshInterval" style="font-size: 11px;">Refresh:</label>
+        <select id="refreshInterval" style="font-size: 11px;">
+            <option value="10">10s</option>
+            <option value="15" selected>15s</option>
+            <option value="20">20s</option>
+            <option value="30">30s</option>
+            <option value="60">60s</option>
+        </select>
         <span class="divider">•</span>
         <span style="font-size: 11px; opacity: 0.7; color: #00AA00;" id="dataSource">📄 XML Splits Data</span>
         <span class="divider">•</span>
@@ -245,12 +258,15 @@
     <script>
         // Configuration
         const MEOS_API_BASE = 'http://localhost:2009';
-        const REFRESH_INTERVAL = 15000; // 15 seconds
+        const PYTHON_SERVER = 'http://localhost:8000'; // Python server for XML files
+        let REFRESH_INTERVAL = 15000; // 15 seconds (default, user can change)
+        let refreshIntervalId = null;
         
         let lastUpdateTime = null;
         let currentResults = [];
         let apiStatus = 'unknown';
         let isRefreshing = false;
+        let finishTimestamps = {}; // Track when runners first appeared with finish times
 
         // Configuration state
         let screenCount = 1;
@@ -262,13 +278,25 @@
             setupEventListeners();
             checkApiStatus();
             fetchResults();
-            setInterval(() => {
+            startAutoRefresh();
+        });
+        
+        function startAutoRefresh() {
+            // Clear existing interval if any
+            if (refreshIntervalId) {
+                clearInterval(refreshIntervalId);
+            }
+            
+            // Start new interval with current setting
+            refreshIntervalId = setInterval(() => {
                 checkApiStatus();
                 if (apiStatus === 'online') {
                     fetchResults();
                 }
             }, REFRESH_INTERVAL);
-        });
+            
+            console.log(`🔄 Auto-refresh set to ${REFRESH_INTERVAL / 1000}s`);
+        }
         
         function loadConfiguration() {
             const savedConfig = localStorage.getItem('liveResults_config');
@@ -276,11 +304,19 @@
                 const config = JSON.parse(savedConfig);
                 screenCount = config.screenCount || 1;
                 document.getElementById('screenCount').value = screenCount;
+                
+                if (config.refreshInterval) {
+                    REFRESH_INTERVAL = config.refreshInterval * 1000; // Convert to ms
+                    document.getElementById('refreshInterval').value = config.refreshInterval;
+                }
             }
         }
         
         function saveConfiguration() {
-            const config = { screenCount };
+            const config = { 
+                screenCount,
+                refreshInterval: REFRESH_INTERVAL / 1000 // Store in seconds
+            };
             localStorage.setItem('liveResults_config', JSON.stringify(config));
         }
         
@@ -289,6 +325,13 @@
                 screenCount = parseInt(e.target.value);
                 saveConfiguration();
                 if (currentResults.length > 0) displayResults(currentResults);
+            });
+            
+            document.getElementById('refreshInterval').addEventListener('change', (e) => {
+                REFRESH_INTERVAL = parseInt(e.target.value) * 1000; // Convert to ms
+                saveConfiguration();
+                startAutoRefresh(); // Restart with new interval
+                console.log(`🔄 Refresh interval changed to ${e.target.value}s`);
             });
         }
         
@@ -372,11 +415,25 @@
             try {
                 console.log('🔄 Starting comprehensive results fetch...');
                 
+                // Step 0: Build course length map from cached data or XML splits
+                let courseLengthMap = {};
+                
+                // Try to load cached course lengths from localStorage
+                try {
+                    const cachedLengths = localStorage.getItem('meos_course_lengths');
+                    if (cachedLengths) {
+                        courseLengthMap = JSON.parse(cachedLengths);
+                        console.log('📑 Loaded cached course lengths:', courseLengthMap);
+                    }
+                } catch (e) {
+                    console.warn('⚠️ Failed to load cached course lengths');
+                }
+                
                 // Step 1: Load XML splits data (detailed results with split times)
                 let xmlResults = [];
                 try {
                     console.log('📄 Loading XML splits data...');
-                    const xmlResponse = await fetch('/load-splits-xml', {
+                    const xmlResponse = await fetch(`${PYTHON_SERVER}/load-splits-xml`, {
                         method: 'GET',
                         signal: AbortSignal.timeout(10000)
                     });
@@ -384,9 +441,27 @@
                     if (xmlResponse.ok) {
                         const xmlText = await xmlResponse.text();
                         console.log(`✅ XML loaded (${Math.round(xmlText.length / 1024)}KB)`);
+                        console.log('🔍 First 200 chars:', xmlText.substring(0, 200));
+                        console.log('🔍 Last 200 chars:', xmlText.substring(xmlText.length - 200));
                         
                         const parsedData = parseSplitsXml(xmlText);
                         xmlResults = transformSplitsData(parsedData);
+                        
+                        // Extract and cache course lengths from XML
+                        xmlResults.forEach(classResult => {
+                            if (classResult.courseLength && classResult.courseLength > 0) {
+                                courseLengthMap[classResult.className] = classResult.courseLength;
+                            }
+                        });
+                        
+                        // Save to localStorage for future use
+                        try {
+                            localStorage.setItem('meos_course_lengths', JSON.stringify(courseLengthMap));
+                            console.log('💾 Cached course lengths:', courseLengthMap);
+                        } catch (e) {
+                            console.warn('⚠️ Failed to cache course lengths');
+                        }
+                        
                         console.log(`📊 XML: ${xmlResults.length} classes, ${xmlResults.reduce((sum, c) => sum + c.runners.length, 0)} runners`);
                     } else {
                         console.warn('⚠️ XML splits not available:', xmlResponse.status);
@@ -395,55 +470,327 @@
                     console.warn('⚠️ XML splits failed:', xmlError.message);
                 }
                 
-                // Step 2: Load MeOS API data (real-time checked-in runners)
-                let apiResults = [];
+                // Step 2: Load checked-in runners from exported data (file or localStorage)
+                let localResults = [];
                 try {
-                    console.log('🌐 Loading MeOS API data...');
-                    const apiResponse = await fetch('http://localhost:3001/api/meos/entries', {
-                        method: 'GET',
-                        signal: AbortSignal.timeout(5000)
-                    });
+                    console.log('💾 Loading checked-in runners from live data export...');
                     
-                    if (apiResponse.ok) {
-                        const apiData = await apiResponse.json();
-                        apiResults = transformMeosApiData(apiData);
-                        console.log(`🔗 API: ${apiResults.length} classes, ${apiResults.reduce((sum, c) => sum + c.runners.length, 0)} runners`);
-                    } else {
-                        console.warn('⚠️ MeOS API not available:', apiResponse.status);
+                    let liveData = null;
+                    
+                    // Try to fetch from JSON file first (cross-origin safe)
+                    try {
+                        const response = await fetch(`${PYTHON_SERVER}/live_data.json?t=` + Date.now(), { 
+                            cache: 'no-store',
+                            signal: AbortSignal.timeout(2000)
+                        });
+                        if (response.ok) {
+                            liveData = await response.json();
+                            console.log('✅ Loaded from live_data.json:', liveData.totalCheckedIn, 'runners');
+                        }
+                    } catch (fileError) {
+                        console.log('📄 live_data.json not available, trying localStorage...');
                     }
-                } catch (apiError) {
-                    console.warn('⚠️ MeOS API failed:', apiError.message);
+                    
+                    // Fallback to localStorage export (same-origin only)
+                    if (!liveData) {
+                        const exportData = localStorage.getItem('live_results_export');
+                        if (exportData) {
+                            liveData = JSON.parse(exportData);
+                            console.log('✅ Loaded from localStorage export:', liveData.totalCheckedIn, 'runners');
+                        }
+                    }
+                    
+                    if (liveData && liveData.runners && liveData.runners.length > 0) {
+                        console.log('👁️ CHECKED-IN RUNNERS:');
+                        liveData.runners.forEach((r, i) => {
+                            console.log(`  [${i}] ${r.name.first} ${r.name.last} | ${r.className}`);
+                        });
+                        localResults = transformLocalEntriesData(liveData.runners);
+                    } else {
+                        console.log('⚠️ No checked-in runners found in exported data');
+                    }
+                } catch (localError) {
+                    console.warn('⚠️ Failed to load checked-in runners:', localError.message);
                 }
                 
-                // Step 3: Merge and prioritize data sources
-                const mergedResults = mergeDataSources(xmlResults, apiResults);
+                // Step 3: API calls removed - not needed for this workflow
+                const apiResults = [];
+                
+                // Step 4: Merge and prioritize data sources (XML results, local checked-in, MeOS API)
+                const mergedResults = mergeDataSources(xmlResults, localResults, apiResults, courseLengthMap);
+                
+                // Track finish timestamps for recent finisher highlighting
+                const now = Date.now();
+                mergedResults.forEach(classResult => {
+                    classResult.runners.forEach(runner => {
+                        const runnerKey = `${classResult.className}:${runner.fullName}`;
+                        if (runner.totalTime && !finishTimestamps[runnerKey]) {
+                            // First time seeing this runner with a finish time
+                            finishTimestamps[runnerKey] = now;
+                            runner.finishedAt = now;
+                        } else if (finishTimestamps[runnerKey]) {
+                            // Already seen, use existing timestamp
+                            runner.finishedAt = finishTimestamps[runnerKey];
+                        }
+                    });
+                });
+                
                 console.log(`🔀 Merged: ${mergedResults.length} classes, ${mergedResults.reduce((sum, c) => sum + c.runners.length, 0)} total runners`);
                 
+                // Validate merged results before display
+                if (!Array.isArray(mergedResults)) {
+                    console.error('❌ mergedResults is not an array:', mergedResults);
+                    throw new Error('Invalid merged results format');
+                }
+                
                 currentResults = mergedResults;
+                console.log('📤 Calling displayResults with:', mergedResults);
                 displayResults(mergedResults);
+                console.log('✅ displayResults completed successfully');
                 updateLastUpdateTime();
                 
                 // Update API status
-                apiStatus = xmlResults.length > 0 || apiResults.length > 0 ? 'online' : 'offline';
+                apiStatus = xmlResults.length > 0 || localResults.length > 0 || apiResults.length > 0 ? 'online' : 'offline';
                 updateStatusDisplay();
                 
             } catch (error) {
-                console.error('Failed to load results:', error);
-                displayError('Failed to load results: ' + error.message);
+                console.error('🛑 CRITICAL ERROR in fetchResults:', error);
+                console.error('🛑 Error stack:', error.stack);
                 
-                // Fallback to mock data
-                console.log('ℹ️ Falling back to mock data');
-                try {
-                    const mockResults = await getMockResults();
-                    displayResults(mockResults);
-                    apiStatus = 'offline';
-                    updateStatusDisplay();
-                } catch (mockError) {
-                    console.error('Mock data also failed:', mockError);
-                }
+                // Show error but DO NOT fall back to mock data
+                displayError('Failed to load results: ' + error.message + '. Check console for details.');
+                apiStatus = 'offline';
+                updateStatusDisplay();
             } finally {
                 isRefreshing = false;
             }
+        }
+        
+        function parseCourseXml(xmlString) {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+            
+            const parserError = xmlDoc.getElementsByTagName('parsererror')[0];
+            if (parserError) {
+                console.error('XML parsing error:', parserError.textContent);
+                return {};
+            }
+            
+            const courseMap = {}; // Map course ID to course length
+            
+            // Method 1: Parse MeOS course format: <crs id="X" len="Y">Course Name</crs>
+            const courseElements = xmlDoc.getElementsByTagName('crs');
+            console.log(`Found ${courseElements.length} crs elements`);
+            
+            for (let i = 0; i < courseElements.length; i++) {
+                const crs = courseElements[i];
+                const courseId = crs.getAttribute('id');
+                const courseName = crs.textContent.trim();
+                const lengthAttr = crs.getAttribute('len') || crs.getAttribute('length');
+                const courseLength = parseInt(lengthAttr || '0');
+                
+                if (courseId) {
+                    courseMap[courseId] = {
+                        id: courseId,
+                        name: courseName,
+                        length: courseLength
+                    };
+                    console.log(`  Course ${courseId} (${courseName}): ${courseLength}m`);
+                }
+            }
+            
+            // Method 2: Parse MeOS classlist format where classes have course info embedded
+            // <cls id="X" ord="Y" crs="Z" len="L">Class Name</cls>
+            if (Object.keys(courseMap).length === 0) {
+                console.log('Trying classlist format (cls with len attribute)...');
+                const classElements = xmlDoc.getElementsByTagName('cls');
+                console.log(`Found ${classElements.length} cls elements`);
+                
+                for (let i = 0; i < classElements.length; i++) {
+                    const cls = classElements[i];
+                    const courseId = cls.getAttribute('crs') || cls.getAttribute('id');
+                    const lengthAttr = cls.getAttribute('len') || cls.getAttribute('length');
+                    const courseLength = parseInt(lengthAttr || '0');
+                    
+                    if (courseId && courseLength > 0) {
+                        courseMap[courseId] = {
+                            id: courseId,
+                            name: cls.textContent.trim(),
+                            length: courseLength
+                        };
+                        console.log(`  Course ${courseId}: ${courseLength}m (from cls)`);
+                    }
+                }
+            }
+            
+            return courseMap;
+        }
+        
+        function parseClassXml(xmlString, courseMap = {}) {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+            
+            const parserError = xmlDoc.getElementsByTagName('parsererror')[0];
+            if (parserError) {
+                console.error('XML parsing error:', parserError.textContent);
+                return [];
+            }
+            
+            const classes = [];
+            
+            // Parse MeOS class format: <cls id="X" ord="Y" radio="" crs="courseId">Class Name</cls>
+            const classElements = xmlDoc.getElementsByTagName('cls');
+            console.log(`Found ${classElements.length} class elements`);
+            
+            for (let i = 0; i < classElements.length; i++) {
+                const cls = classElements[i];
+                const classId = cls.getAttribute('id');
+                const className = cls.textContent.trim();
+                const courseId = cls.getAttribute('crs') || cls.getAttribute('course');
+                const ord = parseInt(cls.getAttribute('ord') || '0');
+                
+                // Look up course length from course map
+                let courseLength = 5000; // default
+                if (courseId && courseMap[courseId]) {
+                    courseLength = courseMap[courseId].length || 5000;
+                }
+                
+                classes.push({
+                    id: classId,
+                    name: className,
+                    courseLength: courseLength,
+                    courseId: courseId,
+                    ord: ord
+                });
+                
+                console.log(`  Class ${className} -> Course ${courseId}: ${courseLength}m`);
+            }
+            
+            return classes;
+        }
+        
+        function parseClassCourseXml(xmlString) {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+            
+            // Check for parsing errors
+            const parserError = xmlDoc.getElementsByTagName('parsererror')[0];
+            if (parserError) {
+                console.error('XML parsing error:', parserError.textContent);
+                return [];
+            }
+            
+            console.log('🔍 Analyzing XML structure...');
+            console.log('  Root element:', xmlDoc.documentElement?.tagName);
+            console.log('  Sample XML (first 1000 chars):', xmlString.substring(0, 1000));
+            
+            const classes = [];
+            const classCourseLengthMap = {}; // Map class ID to course length
+            
+            // First, try to parse Course elements to get lengths
+            const courseElements = xmlDoc.getElementsByTagName('Course');
+            console.log(`  Found ${courseElements.length} Course elements`);
+            for (let i = 0; i < courseElements.length; i++) {
+                const course = courseElements[i];
+                const courseId = course.getElementsByTagName('Id')[0]?.textContent || 
+                               course.getAttribute('id');
+                const lengthElement = course.getElementsByTagName('Length')[0];
+                const lengthAttr = course.getAttribute('len') || course.getAttribute('length');
+                
+                let courseLength = 0;
+                if (lengthElement) {
+                    courseLength = parseInt(lengthElement.textContent) || 0;
+                } else if (lengthAttr) {
+                    courseLength = parseInt(lengthAttr) || 0;
+                }
+                
+                if (courseId && courseLength > 0) {
+                    classCourseLengthMap[courseId] = courseLength;
+                    console.log(`  Course ${courseId}: ${courseLength}m`);
+                }
+            }
+            
+            // Try IOF 3.0 format (Class elements)
+            const classElements = xmlDoc.getElementsByTagName('Class');
+            console.log(`  Found ${classElements.length} Class elements`);
+            for (let i = 0; i < classElements.length; i++) {
+                const cls = classElements[i];
+                const nameElement = cls.getElementsByTagName('Name')[0];
+                const className = nameElement ? nameElement.textContent.trim() : null;
+                
+                if (!className) continue;
+                
+                // Try multiple ways to get course length
+                let courseLength = 0;
+                
+                // Method 1: Course element with Length child
+                const courseElement = cls.getElementsByTagName('Course')[0];
+                if (courseElement) {
+                    const lengthElement = courseElement.getElementsByTagName('Length')[0];
+                    if (lengthElement) {
+                        courseLength = parseInt(lengthElement.textContent) || 0;
+                    }
+                    
+                    // Try to get course ID and look up in map
+                    if (courseLength === 0) {
+                        const courseId = courseElement.getElementsByTagName('Id')[0]?.textContent ||
+                                       courseElement.getAttribute('id');
+                        if (courseId && classCourseLengthMap[courseId]) {
+                            courseLength = classCourseLengthMap[courseId];
+                        }
+                    }
+                }
+                
+                // Method 2: Direct length attribute or element on Class
+                if (courseLength === 0) {
+                    const lengthAttr = cls.getAttribute('length') || cls.getAttribute('len');
+                    if (lengthAttr) {
+                        courseLength = parseInt(lengthAttr) || 0;
+                    }
+                }
+                
+                // Method 3: CourseLength element
+                if (courseLength === 0) {
+                    const courseLengthElement = cls.getElementsByTagName('CourseLength')[0];
+                    if (courseLengthElement) {
+                        courseLength = parseInt(courseLengthElement.textContent) || 0;
+                    }
+                }
+                
+                classes.push({
+                    id: cls.getElementsByTagName('Id')[0]?.textContent || i.toString(),
+                    name: className,
+                    courseLength: courseLength,
+                    ord: i
+                });
+                
+                console.log(`  Class ${className}: ${courseLength}m`);
+            }
+            
+            // Fallback: Try MeOS simple format (cls elements)
+            if (classes.length === 0) {
+                console.log('  Trying MeOS simple format (cls elements)...');
+                const clsElements = xmlDoc.getElementsByTagName('cls');
+                console.log(`  Found ${clsElements.length} cls elements`);
+                for (let i = 0; i < clsElements.length; i++) {
+                    const cls = clsElements[i];
+                    const className = cls.textContent.trim();
+                    const lengthAttr = cls.getAttribute('len') || cls.getAttribute('length');
+                    const courseLength = parseInt(lengthAttr || '0');
+                    
+                    classes.push({
+                        id: cls.getAttribute('id'),
+                        name: className,
+                        courseLength: courseLength,
+                        ord: parseInt(cls.getAttribute('ord') || '0')
+                    });
+                    
+                    console.log(`  Class ${className}: ${courseLength}m`);
+                }
+            }
+            
+            console.log(`✅ Parsed ${classes.length} classes with course data`);
+            return classes;
         }
         
         function parseClassesXml(xmlString) {
@@ -1066,6 +1413,218 @@
             return transformedClasses;
         }
         
+        // Parse XML response from direct MeOS API calls
+        function parseMeosXmlResponse(xmlText) {
+            try {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+                
+                // Check for parsing errors
+                const parserError = xmlDoc.getElementsByTagName('parsererror')[0];
+                if (parserError) {
+                    console.error('XML parsing error:', parserError.textContent);
+                    return null;
+                }
+                
+                // Extract runner data from various MeOS XML formats
+                const runners = [];
+                
+                // Try PersonEntry format (startlist/entries)
+                const personEntries = xmlDoc.getElementsByTagName('PersonEntry');
+                for (let i = 0; i < personEntries.length; i++) {
+                    const entry = personEntries[i];
+                    const runner = parseMeosPersonEntry(entry);
+                    if (runner) runners.push(runner);
+                }
+                
+                // Try PersonResult format (results)
+                const personResults = xmlDoc.getElementsByTagName('PersonResult');
+                for (let i = 0; i < personResults.length; i++) {
+                    const result = personResults[i];
+                    const runner = parseMeosPersonResult(result);
+                    if (runner) runners.push(runner);
+                }
+                
+                // Try Competitor format
+                const competitors = xmlDoc.getElementsByTagName('Competitor');
+                for (let i = 0; i < competitors.length; i++) {
+                    const competitor = competitors[i];
+                    const runner = parseMeosCompetitor(competitor);
+                    if (runner) runners.push(runner);
+                }
+                
+                return runners;
+                
+            } catch (error) {
+                console.error('Failed to parse MeOS XML response:', error);
+                return null;
+            }
+        }
+        
+        // Parse MeOS PersonEntry XML element
+        function parseMeosPersonEntry(entry) {
+            try {
+                const person = entry.getElementsByTagName('Person')[0];
+                const card = entry.getElementsByTagName('Card')[0];
+                const entryClass = entry.getElementsByTagName('Class')[0];
+                
+                if (!person) return null;
+                
+                const givenName = person.getElementsByTagName('Given')[0]?.textContent || '';
+                const familyName = person.getElementsByTagName('Family')[0]?.textContent || '';
+                const club = person.getElementsByTagName('Club')[0]?.textContent || '';
+                
+                return {
+                    id: entry.getAttribute('id'),
+                    name: {
+                        first: givenName,
+                        last: familyName,
+                    },
+                    fullName: `${givenName} ${familyName}`.trim(),
+                    club: club,
+                    cardNumber: card?.getElementsByTagName('CardNo')[0]?.textContent || '0',
+                    className: entryClass?.getElementsByTagName('Name')[0]?.textContent || 'Unknown',
+                    classId: entryClass?.getAttribute('id'),
+                    birthYear: person.getElementsByTagName('BirthDate')[0]?.textContent || '',
+                    sex: person.getElementsByTagName('Sex')[0]?.textContent || '',
+                    nationality: person.getElementsByTagName('Nationality')[0]?.textContent || '',
+                    status: 'checked_in', // Default for entries
+                    startTime: entry.getElementsByTagName('StartTime')[0]?.textContent,
+                    bib: entry.getElementsByTagName('BibNumber')[0]?.textContent,
+                    dataSource: 'meos_xml'
+                };
+            } catch (error) {
+                console.error('Failed to parse PersonEntry:', error);
+                return null;
+            }
+        }
+        
+        // Parse MeOS PersonResult XML element
+        function parseMeosPersonResult(result) {
+            try {
+                const person = result.getElementsByTagName('Person')[0];
+                const resultElement = result.getElementsByTagName('Result')[0];
+                const organisation = result.getElementsByTagName('Organisation')[0];
+                
+                if (!person || !resultElement) return null;
+                
+                const nameElement = person.getElementsByTagName('Name')[0];
+                const givenName = nameElement?.getElementsByTagName('Given')[0]?.textContent || '';
+                const familyName = nameElement?.getElementsByTagName('Family')[0]?.textContent || '';
+                
+                const time = parseInt(resultElement.getElementsByTagName('Time')[0]?.textContent || '0');
+                const timeBehind = parseInt(resultElement.getElementsByTagName('TimeBehind')[0]?.textContent || '0');
+                const position = parseInt(resultElement.getElementsByTagName('Position')[0]?.textContent || '0');
+                const status = resultElement.getElementsByTagName('Status')[0]?.textContent || 'Unknown';
+                
+                return {
+                    fullName: `${givenName} ${familyName}`.trim(),
+                    club: organisation?.getElementsByTagName('Name')[0]?.textContent || '',
+                    totalTime: time > 0 ? time * 1000 : null, // Convert to milliseconds
+                    timeBehindLeader: timeBehind > 0 ? timeBehind * 1000 : null,
+                    timeLost: null, // Will be calculated if needed
+                    position: position > 0 ? position : null,
+                    status: status.toLowerCase() === 'ok' ? 'finished' : status.toLowerCase(),
+                    dataSource: 'meos_xml'
+                };
+            } catch (error) {
+                console.error('Failed to parse PersonResult:', error);
+                return null;
+            }
+        }
+        
+        // Parse MeOS Competitor XML element
+        function parseMeosCompetitor(competitor) {
+            try {
+                // Implementation depends on MeOS Competitor XML structure
+                // This is a placeholder - would need actual MeOS XML format
+                return null;
+            } catch (error) {
+                console.error('Failed to parse Competitor:', error);
+                return null;
+            }
+        }
+        
+        // Transform MeOS XML data to our display format
+        function transformMeosXmlData(runners) {
+            if (!Array.isArray(runners) || runners.length === 0) {
+                return [];
+            }
+            
+            // Group by class
+            const classGroups = {};
+            
+            runners.forEach(runner => {
+                const className = runner.className || 'Unknown';
+                if (!classGroups[className]) {
+                    classGroups[className] = {
+                        className: className,
+                        courseLength: 5000, // Default
+                        runners: [],
+                        dataSource: 'meos_xml'
+                    };
+                }
+                
+                classGroups[className].runners.push(runner);
+            });
+            
+            // Convert to array and sort
+            const transformedClasses = Object.values(classGroups);
+            transformedClasses.sort((a, b) => {
+                return compareClassNames(a.className, b.className, []);
+            });
+            
+            return transformedClasses;
+        }
+        
+        // Transform local checked-in entries to our display format
+        function transformLocalEntriesData(localEntries) {
+            if (!Array.isArray(localEntries)) {
+                console.warn('Local entries is not an array:', localEntries);
+                return [];
+            }
+            
+            console.log(`💾 Transforming ${localEntries.length} local checked-in entries`);
+            
+            // Group by class
+            const classGroups = {};
+            
+            localEntries.forEach(entry => {
+                const className = entry.className || 'Unknown';
+                if (!classGroups[className]) {
+                    classGroups[className] = {
+                        className: className,
+                        courseLength: 5000, // Default
+                        runners: [],
+                        dataSource: 'local_checkin'
+                    };
+                }
+                
+                // Transform local entry to our runner format
+                const runner = {
+                    fullName: `${entry.name?.first || ''} ${entry.name?.last || ''}`.trim(),
+                    club: entry.club || '',
+                    totalTime: null, // No time yet - just checked in
+                    timeBehindLeader: null,
+                    timeLost: null,
+                    position: null,
+                    status: 'checked_in',
+                    dataSource: 'local_checkin'
+                };
+                
+                classGroups[className].runners.push(runner);
+            });
+            
+            // Convert to array and sort
+            const transformedClasses = Object.values(classGroups);
+            transformedClasses.sort((a, b) => {
+                return compareClassNames(a.className, b.className, []);
+            });
+            
+            console.log(`✅ Transformed into ${transformedClasses.length} classes`);
+            return transformedClasses;
+        }
+        
         // Transform MeOS API data to our display format
         function transformMeosApiData(apiData) {
             if (!Array.isArray(apiData)) {
@@ -1091,11 +1650,11 @@
                 const runner = {
                     fullName: `${entry.name?.first || ''} ${entry.name?.last || ''}`.trim(),
                     club: entry.club || '',
-                    totalTime: null, // API doesn't provide finish times typically
+                    totalTime: entry.totalTime || null,
                     timeBehindLeader: null,
                     timeLost: null,
-                    position: null,
-                    status: determineApiStatus(entry)
+                    position: entry.position || null,
+                    status: entry.status || determineApiStatus(entry)
                 };
                 
                 classGroups[className].runners.push(runner);
@@ -1123,23 +1682,29 @@
             return entry.status || 'checked_in';
         }
         
-        // Merge data sources, prioritizing XML splits over API data
-        function mergeDataSources(xmlResults, apiResults) {
-            if (xmlResults.length === 0 && apiResults.length === 0) {
+        // Merge data sources, prioritizing XML splits > Local checked-in > API data
+        function mergeDataSources(xmlResults, localResults, apiResults, courseLengthMap = {}) {
+            if (xmlResults.length === 0 && localResults.length === 0 && apiResults.length === 0) {
                 return [];
             }
             
-            if (xmlResults.length === 0) {
+            // If only one source has data, return it
+            if (xmlResults.length === 0 && localResults.length === 0) {
                 console.log('Using API data only');
                 return apiResults;
             }
             
-            if (apiResults.length === 0) {
+            if (xmlResults.length === 0 && apiResults.length === 0) {
+                console.log('Using local checked-in data only');
+                return localResults;
+            }
+            
+            if (localResults.length === 0 && apiResults.length === 0) {
                 console.log('Using XML data only');
                 return xmlResults;
             }
             
-            console.log('Merging XML and API data sources');
+            console.log(`Merging ${xmlResults.length} XML, ${localResults.length} local, ${apiResults.length} API classes`);
             
             // Create a map of XML classes for quick lookup
             const xmlClassMap = {};
@@ -1150,28 +1715,71 @@
             // Start with XML results (they have more detailed data)
             const mergedResults = [...xmlResults];
             
+            // Build class map for lookups
+            const mergedClassMap = {};
+            mergedResults.forEach(classResult => {
+                mergedClassMap[classResult.className] = classResult;
+            });
+            
+            // Add local checked-in runners first (they might not be in MeOS yet)
+            localResults.forEach(localClass => {
+                const existingClass = mergedClassMap[localClass.className];
+                
+                if (existingClass) {
+                    // Class exists, merge runners
+                    const existingRunnerNames = new Set(existingClass.runners.map(r => r.fullName.toLowerCase()));
+                    
+                    // Add local runners not already in results (just checked in, not started yet)
+                    localClass.runners.forEach(localRunner => {
+                        if (!existingRunnerNames.has(localRunner.fullName.toLowerCase())) {
+                            console.log(`➕ Adding checked-in runner: ${localRunner.fullName} (${localClass.className})`);
+                            existingClass.runners.push({
+                                ...localRunner,
+                                dataSource: 'local_checkin'
+                            });
+                        }
+                    });
+                } else {
+                    // Class doesn't exist yet, add entire class
+                    // Try to find course length from: 1) API courseLengthMap, 2) XML data, 3) local data, 4) default
+                    const courseLength = courseLengthMap[localClass.className] || 
+                                        xmlResults.find(c => c.className === localClass.className)?.courseLength || 
+                                        localClass.courseLength || 
+                                        5000;
+                    
+                    console.log(`➕ Adding checked-in class: ${localClass.className} (${courseLength}m)`);
+                    const newClass = { ...localClass, courseLength };
+                    mergedResults.push(newClass);
+                    mergedClassMap[localClass.className] = newClass;
+                }
+            });
+            
             // Add API-only runners to existing classes or create new classes
             apiResults.forEach(apiClass => {
-                const xmlClass = xmlClassMap[apiClass.className];
+                const existingClass = mergedClassMap[apiClass.className];
                 
-                if (xmlClass) {
-                    // Class exists in XML, merge runners
-                    const xmlRunnerNames = new Set(xmlClass.runners.map(r => r.fullName.toLowerCase()));
+                if (existingClass) {
+                    // Class exists, merge runners
+                    const existingRunnerNames = new Set(existingClass.runners.map(r => r.fullName.toLowerCase()));
                     
-                    // Add API runners not in XML (e.g., just checked in)
+                    // Add API runners not already in results
                     apiClass.runners.forEach(apiRunner => {
-                        if (!xmlRunnerNames.has(apiRunner.fullName.toLowerCase())) {
+                        if (!existingRunnerNames.has(apiRunner.fullName.toLowerCase())) {
                             console.log(`➕ Adding API-only runner: ${apiRunner.fullName} (${apiClass.className})`);
-                            xmlClass.runners.push({
+                            existingClass.runners.push({
                                 ...apiRunner,
                                 dataSource: 'meos_api'
                             });
                         }
                     });
                 } else {
-                    // Class doesn't exist in XML, add entire class from API
-                    console.log(`➕ Adding API-only class: ${apiClass.className}`);
-                    mergedResults.push(apiClass);
+                    // Class doesn't exist yet, add entire class from API
+                    // Apply course length from API map if available
+                    const courseLength = courseLengthMap[apiClass.className] || apiClass.courseLength || 5000;
+                    const newClass = { ...apiClass, courseLength };
+                    console.log(`➕ Adding API-only class: ${apiClass.className} (${courseLength}m)`);
+                    mergedResults.push(newClass);
+                    mergedClassMap[apiClass.className] = newClass;
                 }
             });
             
@@ -1249,9 +1857,9 @@
                 const classId = classData.id;
                 const classResults = resultsByClass[classId] || [];
                 
-                if (classResults.length === 0) {
-                    return; // Skip empty classes
-                }
+                // Always include the class, even if empty (no runners checked in yet)
+                // Get course length from class data if available
+                const courseLength = classData.length || 5000;
                 
                 // Sort runners: finished first (by place), then unfinished by status
                 classResults.sort((a, b) => {
@@ -1301,7 +1909,7 @@
                 
                 transformedClasses.push({
                     className: classData.name,
-                    courseLength: 5000, // Default 5km - MeOS doesn't provide course length in this data
+                    courseLength: courseLength,
                     runners: transformedRunners
                 });
             });
@@ -1361,20 +1969,21 @@
             const container = document.getElementById('resultsContainer');
             
             if (!classResults || classResults.length === 0) {
-                console.log('No results to display');
+                console.log('No results to display - showing waiting message');
                 container.innerHTML = `
                     <div class="class-card">
                         <div class="no-results">
-                            <div class="no-results-icon">👥</div>
-                            <h3>No results available yet</h3>
-                            <p>Results will appear here as runners check in and start their courses.</p>
+                            <div class="no-results-icon">⌛</div>
+                            <h3>Waiting for Check-In</h3>
+                            <p>Results will appear here as runners check in.</p>
                         </div>
                     </div>
                 `;
                 return;
             }
-
-            // Generate separate screen files
+            
+            console.log('🚀 Generating screen files for', classResults.length, 'classes...');
+            // Always generate screen files (windows) for any screen count
             generateScreenFiles(classResults, screenCount);
             
             // Show screen links in main page
@@ -1575,8 +2184,12 @@
         let screenWindows = [];
         
         function generateScreenFiles(classResults, numScreens) {
+            console.log('📺 [generateScreenFiles] Called with:', classResults.length, 'classes,', numScreens, 'screens');
+            console.log('📺 [generateScreenFiles] Class data:', JSON.stringify(classResults, null, 2));
+            
             // First, optimize class distribution across ALL screens
             const optimizedScreenSections = optimizeGlobalDistribution(classResults, numScreens);
+            console.log('📺 [generateScreenFiles] Optimized sections:', optimizedScreenSections.length);
             
             // Close any existing screen windows that are beyond our new count
             for (let i = numScreens; i < screenWindows.length; i++) {
@@ -1590,26 +2203,37 @@
                 const screenNumber = screenIndex + 1;
                 const html = generateScreenHTML(section, screenNumber, numScreens);
                 
-                // Open in new tab or update existing
+                // Check if window exists and is still open
                 if (screenWindows[screenIndex] && !screenWindows[screenIndex].closed) {
-                    // Update existing window content
-                    screenWindows[screenIndex].document.open();
-                    screenWindows[screenIndex].document.write(html);
-                    screenWindows[screenIndex].document.close();
-                    screenWindows[screenIndex].focus();
-                } else {
-                    // Open new window/tab
+                    // Update existing window content without closing/reopening
+                    console.log(`🔄 Updating screen ${screenNumber} content`);
                     try {
+                        screenWindows[screenIndex].document.open();
+                        screenWindows[screenIndex].document.write(html);
+                        screenWindows[screenIndex].document.close();
+                        console.log(`✅ Screen ${screenNumber} updated successfully`);
+                    } catch (error) {
+                        console.error(`❌ Error updating screen ${screenNumber}:`, error);
+                        // If update fails, try reopening
+                        screenWindows[screenIndex] = null;
+                    }
+                }
+                
+                // Open new window if needed
+                if (!screenWindows[screenIndex] || screenWindows[screenIndex].closed) {
+                    try {
+                        console.log(`🎆 Opening screen ${screenNumber} with fresh content`);
                         screenWindows[screenIndex] = window.open('', `screen_${screenNumber}`, 'width=1200,height=800');
                         if (screenWindows[screenIndex]) {
                             screenWindows[screenIndex].document.open();
                             screenWindows[screenIndex].document.write(html);
                             screenWindows[screenIndex].document.close();
+                            console.log(`✅ Screen ${screenNumber} opened successfully`);
                         } else {
-                            console.error(`Failed to open screen ${screenNumber} - popup blocked?`);
+                            console.error(`❌ Failed to open screen ${screenNumber} - popup blocked?`);
                         }
                     } catch (error) {
-                        console.error(`Error opening screen ${screenNumber}:`, error);
+                        console.error(`❌ Error opening screen ${screenNumber}:`, error);
                     }
                 }
             });
@@ -1765,12 +2389,20 @@
             font-size: ${fontSizes.position}px;
         }
         
-        .winner-row {
-            background: #FFFF99 !important;
+        .gold-row {
+            background: #FFD700 !important; /* Gold */
+            border-left: 8px solid #B8860B !important; /* Dark gold */
+            font-weight: bold;
         }
         
-        .podium-row {
-            background: #E6FFE6 !important;
+        .silver-row {
+            background: #C0C0C0 !important; /* Silver */
+            border-left: 6px solid #808080 !important; /* Dark silver */
+        }
+        
+        .bronze-row {
+            background: #CD7F32 !important; /* Bronze */
+            border-left: 6px solid #8B4513 !important; /* Dark bronze */
         }
         
         .runner-name {
@@ -1937,10 +2569,61 @@
             const courseCode = classResult.courseLength > 6000 ? "L" : 
                               classResult.courseLength > 4000 ? "M" : "S";
             
+            // Show class even if no runners
+            const runnerCount = classResult.runners.length;
+            const runnersText = `${runnerCount} <span style="font-size: 0.85em;">runner${runnerCount !== 1 ? 's' : ''}</span>`;
+            
+            // Separate runners into finished and checked-in
+            const finishedRunners = classResult.runners
+                .filter(r => r.totalTime)
+                .sort((a, b) => (a.totalTime || Infinity) - (b.totalTime || Infinity)); // Sort by time
+            
+            const checkedInRunners = classResult.runners
+                .filter(r => !r.totalTime && r.status === 'checked_in')
+                .sort((a, b) => (a.fullName || '').localeCompare(b.fullName || '')); // Sort by name
+            
+            // Calculate time threshold for recent finishers (240 seconds = 4 minutes)
+            const now = Date.now();
+            const recentThreshold = 240000; // 240 seconds in milliseconds
+            
+            const generateRunnerRow = (runner, actualPosition, isCheckedIn = false) => {
+                // Use actualPosition for display (passed in, not calculated)
+                const position = actualPosition;
+                
+                // Only highlight top 3 for finished runners with medal colors
+                let rowClass = '';
+                if (!isCheckedIn) {
+                    if (position === 1) rowClass = 'gold-row';
+                    else if (position === 2) rowClass = 'silver-row';
+                    else if (position === 3) rowClass = 'bronze-row';
+                }
+                
+                // Check if this is a recent finisher (within last 4 minutes)
+                // We'll need to track finish timestamps - for now, assume recent if no timestamp available
+                const isRecent = runner.finishedAt && (now - runner.finishedAt) < recentThreshold;
+                const boldStyle = isRecent ? 'font-weight: bold;' : '';
+                
+                // Show "checked-in" in italics if no time yet
+                const timeDisplay = runner.totalTime ? formatTime(runner.totalTime) : 
+                                   runner.status === 'checked_in' ? '<em>checked-in</em>' : 
+                                   getStatusDisplay(runner.status);
+                
+                return `
+                    <tr class="${rowClass}" style="${boldStyle}">
+                        <td class="position">${runner.totalTime ? position : '-'}</td>
+                        <td class="runner-name">${runner.fullName}</td>
+                        <td class="club">${runner.club || ''}</td>
+                        <td class="time">${timeDisplay}</td>
+                        <td class="diff">${runner.totalTime ? formatTimeDifference(runner.timeBehindLeader) : '-'}</td>
+                        <td class="lost">${runner.totalTime ? formatTimeDifference(runner.timeLost) : '-'}</td>
+                    </tr>
+                `;
+            };
+            
             return `
                 <div class="class-card">
                     <div class="class-header-compact">
-                        ${classResult.className} | ${courseCode} ${(classResult.courseLength / 1000).toFixed(1)}km | ${classResult.runners.length}r
+                        ${classResult.className} | ${courseCode} ${(classResult.courseLength / 1000).toFixed(1)}km | ${runnersText}
                     </div>
                     <table class="results-table">
                         <thead>
@@ -1954,22 +2637,10 @@
                             </tr>
                         </thead>
                         <tbody>
-                            ${classResult.runners.map((runner, index) => {
-                                const position = runner.position || (index + 1);
-                                const rowClass = position === 1 ? 'winner-row' : 
-                                               position <= 3 ? 'podium-row' : '';
-                                
-                                return `
-                                    <tr class="${rowClass}">
-                                        <td class="position">${position || getStatusDisplay(runner.status)}</td>
-                                        <td class="runner-name">${runner.fullName}</td>
-                                        <td class="club">${runner.club || ''}</td>
-                                        <td class="time">${formatTime(runner.totalTime) || getStatusDisplay(runner.status)}</td>
-                                        <td class="diff">${formatTimeDifference(runner.timeBehindLeader)}</td>
-                                        <td class="lost">${formatTimeDifference(runner.timeLost)}</td>
-                                    </tr>
-                                `;
-                            }).join('')}
+                            ${runnerCount === 0 ? '<tr><td colspan="6" style="text-align: center; font-style: italic; color: #999;">No runners checked in</td></tr>' : ''}
+                            ${finishedRunners.map((runner, index) => generateRunnerRow(runner, index + 1, false)).join('')}
+                            ${checkedInRunners.length > 0 && finishedRunners.length > 0 ? '<tr><td colspan="6" style="border-top: 2px solid #ddd; padding: 0;"></td></tr>' : ''}
+                            ${checkedInRunners.map((runner, index) => generateRunnerRow(runner, null, true)).join('')}
                         </tbody>
                     </table>
                 </div>

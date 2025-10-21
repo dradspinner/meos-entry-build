@@ -1,8 +1,48 @@
 const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const isDev = require('electron-is-dev');
+const { spawn } = require('child_process');
+
+// Enable Web Serial API and experimental features before app ready
+app.commandLine.appendSwitch('enable-experimental-web-platform-features');
+app.commandLine.appendSwitch('enable-web-serial');
+app.commandLine.appendSwitch('enable-features', 'WebSerial');
+app.commandLine.appendSwitch('enable-serial-port-web-driver');
+app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor');
+
 
 let mainWindow;
+let databaseManagerWindow = null;
+let pythonServerProcess = null;
+
+// Serial port selection handler on app (Electron 19+)
+app.on('select-serial-port', (event, portList, webContents, callback) => {
+  event.preventDefault();
+
+  // Find Silicon Labs CP210x (vendor ID 0x10C4 = 4292 decimal)
+  const siPorts = portList.filter(port => {
+    const vid = port.vendorId;
+    // vendorId can be string or number depending on Electron version
+    return vid === 0x10C4 || vid === 4292 || vid === '4292' || vid === '0x10c4';
+  });
+
+  if (siPorts.length > 0) {
+    callback(siPorts[0].portId);
+  } else if (portList.length > 0) {
+    callback(portList[0].portId);
+  } else {
+    callback('');
+  }
+});
+
+// Also listen for serial port added/removed events
+app.on('serial-port-added', (event, port) => {
+  // Port added - no logging needed
+});
+
+app.on('serial-port-removed', (event, port) => {
+  // Port removed - no logging needed
+});
 
 function createWindow() {
   // Create the browser window
@@ -16,6 +56,7 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false,
       webSecurity: false, // Allow local file access for development
+      experimentalFeatures: true, // Enable experimental web features
       preload: path.join(__dirname, 'preload.cjs')
     },
     icon: path.join(__dirname, 'icon.png'),
@@ -24,25 +65,42 @@ function createWindow() {
   });
 
   // Load the app
+  const devPort = process.env.VITE_PORT || 5174;
   const startUrl = isDev 
-    ? 'http://localhost:5173' 
+    ? `http://localhost:${devPort}` 
     : `file://${path.join(__dirname, '../dist/index.html')}`;
   
   mainWindow.loadURL(startUrl);
+
 
   // Show window when ready to prevent visual flash
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     
-    // DevTools can be opened manually via menu: View > Toggle Developer Tools
+    // DevTools can be opened via menu: View > Toggle Developer Tools
+    // Uncomment below to auto-open DevTools in development:
     // if (isDev) {
     //   mainWindow.webContents.openDevTools();
     // }
   });
 
+  // Handle errors
+  mainWindow.webContents.on('crashed', () => {
+    // Renderer process crashed - handle silently
+  });
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    // Failed to load - handle silently
+  });
+
   // Handle window closed
   mainWindow.on('closed', () => {
     mainWindow = null;
+    // Close database manager if open
+    if (databaseManagerWindow) {
+      databaseManagerWindow.close();
+      databaseManagerWindow = null;
+    }
   });
 
   // Handle external links
@@ -52,8 +110,183 @@ function createWindow() {
   });
 }
 
+// Setup serial port permissions and Web Serial API
+function setupSerialPortPermissions() {
+  const { session } = require('electron');
+  
+  // Use defaultSession (NOT fromPartition)
+  const sess = session.defaultSession;
+  
+  
+  // Handle permission requests for serial ports
+  sess.setPermissionRequestHandler((webContents, permission, callback) => {
+    // Allow serial port access for SportIdent readers
+    if (permission === 'serial') {
+      callback(true);
+      return;
+    }
+    
+    // Allow USB device access (alternative for some readers)
+    if (permission === 'usb') {
+      callback(true);
+      return;
+    }
+    
+    // Default deny for other permissions
+    callback(false);
+  });
+  
+  // Debug: Log when Web Serial API methods are called
+  sess.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
+    // This won't catch Web Serial API calls directly, but we can add console logging
+    callback({ cancel: false });
+  });
+  
+  // Handle serial port selection - Using both old and new APIs for compatibility
+  
+  // Try the newer setDevicePermissionHandler API (Electron 19+)
+  sess.setDevicePermissionHandler((details) => {
+    if (details.deviceType === 'serial') {
+      return true;
+    }
+    
+    return false;
+  });
+  
+  // Also try the old select-serial-port event (Electron <19)
+  sess.on('select-serial-port', (event, portList, webContents, callback) => {
+    event.preventDefault();
+
+    // Find Silicon Labs devices (0x10C4)
+    const siPorts = portList.filter(port => {
+      const vid = port.vendorId;
+      return vid === 0x10C4 || vid === '0x10c4' || vid === 4292;
+    });
+
+    if (siPorts.length > 0) {
+      callback(siPorts[0].portId);
+    } else if (portList.length > 0) {
+      callback(portList[0].portId);
+    } else {
+      callback('');
+    }
+  });
+  
+  // Handle serial port permissions check
+  sess.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    // Allow serial and USB permissions for our app
+    if (permission === 'serial' || permission === 'usb') {
+      return true;
+    }
+    
+    return false;
+  });
+}
+
+// Start Python server for Live Results
+function startPythonServer() {
+  const serverPath = path.join(__dirname, 'server.py');
+  const publicDir = __dirname;
+  
+  console.log('[Electron] Starting MeOS Export Results server...');
+  console.log('[Electron] Server path:', serverPath);
+  console.log('[Electron] Working directory:', publicDir);
+  
+  // Try multiple Python command variations
+  const pythonCommands = ['python', 'python3', 'py'];
+  let pythonCmd = null;
+  
+  // Test which Python command works
+  for (const cmd of pythonCommands) {
+    try {
+      const testProcess = spawn(cmd, ['--version'], { shell: true });
+      testProcess.on('error', () => {});
+      testProcess.on('exit', (code) => {
+        if (code === 0 && !pythonCmd) {
+          pythonCmd = cmd;
+          console.log(`[Electron] Found Python command: ${cmd}`);
+        }
+      });
+    } catch (e) {
+      // Continue trying
+    }
+  }
+  
+  // Wait a moment for Python detection, then start server
+  setTimeout(() => {
+    if (!pythonCmd) {
+      pythonCmd = 'python'; // fallback
+      console.warn('[Electron] Could not detect Python, trying default "python" command');
+    }
+    
+    try {
+      // Spawn Python process with server.py
+      // Use quoted path to handle spaces in directory names
+      pythonServerProcess = spawn(pythonCmd, [`"${serverPath}"`], {
+        cwd: publicDir,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: true,
+        windowsVerbatimArguments: false
+      });
+      
+      // Log server output
+      pythonServerProcess.stdout.on('data', (data) => {
+        const output = data.toString().trim();
+        console.log('[Python Server]', output);
+      });
+      
+      pythonServerProcess.stderr.on('data', (data) => {
+        const error = data.toString().trim();
+        // Only log actual errors, not startup messages
+        if (!error.includes('Starting') && !error.includes('Server will run')) {
+          console.error('[Python Server Error]', error);
+        } else {
+          console.log('[Python Server]', error);
+        }
+      });
+      
+      pythonServerProcess.on('error', (error) => {
+        console.error('[Electron] Failed to start Python server:', error.message);
+        console.error('[Electron] Make sure Python is installed and in your PATH');
+        console.error('[Electron] You can manually start the server by running:');
+        console.error(`[Electron]   cd "${publicDir}"`);
+        console.error(`[Electron]   python server.py`);
+      });
+      
+      pythonServerProcess.on('exit', (code, signal) => {
+        if (code !== 0 && code !== null) {
+          console.error(`[Electron] Python server exited with code ${code}`);
+        }
+        pythonServerProcess = null;
+      });
+      
+      console.log('[Electron] Python server process started (PID:', pythonServerProcess.pid + ')');
+      console.log('[Electron] Server should be available at http://localhost:8000');
+      console.log('[Electron] Check for "Starting MeOS Live Results Server" message above');
+    } catch (error) {
+      console.error('[Electron] Error starting Python server:', error);
+      console.error('[Electron] Python may not be installed or not in PATH');
+    }
+  }, 500); // Wait 500ms for Python detection
+}
+
+// Stop Python server
+function stopPythonServer() {
+  if (pythonServerProcess) {
+    console.log('[Electron] Stopping Python server...');
+    pythonServerProcess.kill();
+    pythonServerProcess = null;
+  }
+}
+
 // App event handlers
 app.whenReady().then(() => {
+  // IMPORTANT: Set up serial port permissions BEFORE creating window
+  setupSerialPortPermissions();
+  
+  // Start Python server for Live Results
+  startPythonServer();
+  
   createWindow();
   createMenuBar();
 
@@ -65,10 +298,75 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  // Stop Python server when app is quitting
+  stopPythonServer();
+  
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
+
+app.on('before-quit', () => {
+  // Ensure Python server is stopped before app quits
+  stopPythonServer();
+});
+
+// Create database manager window
+function createDatabaseManagerWindow() {
+  // If window already exists, focus it
+  if (databaseManagerWindow) {
+    databaseManagerWindow.focus();
+    return;
+  }
+
+  console.log('[Electron] Creating Database Manager window...');
+  
+  databaseManagerWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 1000,
+    minHeight: 700,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      webSecurity: false,
+      preload: path.join(__dirname, 'preload.cjs')
+    },
+    icon: path.join(__dirname, 'icon.png'),
+    show: false,
+    title: 'Runner Database Manager'
+  });
+
+  // Load the app with database-manager route
+  const devPort = process.env.VITE_PORT || 5174;
+  const startUrl = isDev 
+    ? `http://localhost:${devPort}/#/database-manager` 
+    : `file://${path.join(__dirname, '../dist/index.html')}#/database-manager`;
+  
+  databaseManagerWindow.loadURL(startUrl);
+
+  // Show window when ready
+  databaseManagerWindow.once('ready-to-show', () => {
+    databaseManagerWindow.show();
+    console.log('[Electron] Database Manager window opened');
+  });
+
+  // Handle window closed
+  databaseManagerWindow.on('closed', () => {
+    console.log('[Electron] Database Manager window closed');
+    databaseManagerWindow = null;
+  });
+
+  // Handle errors
+  databaseManagerWindow.webContents.on('crashed', () => {
+    console.error('[Electron] Database Manager window crashed');
+  });
+
+  databaseManagerWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('[Electron] Database Manager failed to load:', errorDescription);
+  });
+}
 
 // Create application menu
 function createMenuBar() {
@@ -151,41 +449,16 @@ function createMenuBar() {
             mainWindow.webContents.send('menu-switch-module', 'same-day-operations');
           }
         },
-        {
-          label: 'Runner Database',
-          accelerator: 'CmdOrCtrl+3',
-          click: () => {
-            mainWindow.webContents.send('menu-switch-module', 'runner-database');
-          }
-        }
       ]
     },
     {
       label: 'Tools',
       submenu: [
         {
-          label: 'Connect SI Reader',
+          label: 'Runner Database',
           click: () => {
-            mainWindow.webContents.send('menu-connect-si-reader');
-          }
-        },
-        {
-          label: 'Test MeOS Connection',
-          click: () => {
-            mainWindow.webContents.send('menu-test-meos-connection');
-          }
-        },
-        { type: 'separator' },
-        {
-          label: 'Sync Runner Database',
-          click: () => {
-            mainWindow.webContents.send('menu-sync-database');
-          }
-        },
-        {
-          label: 'Backup Data',
-          click: () => {
-            mainWindow.webContents.send('menu-backup-data');
+            console.log('[Electron] Opening Runner Database window...');
+            createDatabaseManagerWindow();
           }
         }
       ]
@@ -281,10 +554,8 @@ ipcMain.handle('save-runner-database', async (event, filePath, content) => {
     await fs.mkdir(dir, { recursive: true });
     
     await fs.writeFile(filePath, content, 'utf8');
-    console.log(`[Electron] Successfully saved runner database to: ${filePath}`);
     return true;
   } catch (error) {
-    console.error(`[Electron] Failed to save runner database:`, error);
     return false;
   }
 });
@@ -293,10 +564,8 @@ ipcMain.handle('load-runner-database', async (event, filePath) => {
   try {
     const fs = require('fs').promises;
     const content = await fs.readFile(filePath, 'utf8');
-    console.log(`[Electron] Successfully loaded runner database from: ${filePath}`);
     return content;
   } catch (error) {
-    console.error(`[Electron] Failed to load runner database:`, error);
     return null;
   }
 });
@@ -314,13 +583,26 @@ ipcMain.handle('choose-runner-database-path', async (event) => {
     });
     
     if (!result.canceled) {
-      console.log(`[Electron] User chose runner database path: ${result.filePath}`);
       return result.filePath;
     }
     return null;
   } catch (error) {
-    console.error(`[Electron] Error choosing runner database path:`, error);
     return null;
+  }
+});
+
+// Write live results data to public/live_data.json
+ipcMain.removeHandler('write-live-results');
+ipcMain.handle('write-live-results', async (event, jsonContent) => {
+  try {
+    const fs = require('fs').promises;
+    const liveDataPath = path.join(__dirname, 'live_data.json');
+    await fs.writeFile(liveDataPath, jsonContent, 'utf8');
+    console.log('[Electron] Successfully wrote live_data.json');
+    return { success: true };
+  } catch (error) {
+    console.error('[Electron] Failed to write live_data.json:', error);
+    return { success: false, error: error.message };
   }
 });
 

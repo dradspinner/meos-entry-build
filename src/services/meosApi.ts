@@ -44,7 +44,7 @@ export class MeosApiClient {
       timeout: this.config.timeout,
       headers: {
         'Accept': 'application/xml, text/xml, */*',
-        'User-Agent': 'MeOS-Entry-Build/1.0',
+        // Note: User-Agent cannot be set in browser/Electron renderer (browser blocks it)
       },
     });
 
@@ -58,11 +58,9 @@ export class MeosApiClient {
     // Request interceptor
     this.client.interceptors.request.use(
       (config) => {
-        console.debug(`[MeosAPI] ${config.method?.toUpperCase()} ${config.url}`, config.params);
         return config;
       },
       (error) => {
-        console.error('[MeosAPI] Request error:', error);
         return Promise.reject(error);
       }
     );
@@ -70,12 +68,9 @@ export class MeosApiClient {
     // Response interceptor
     this.client.interceptors.response.use(
       (response) => {
-        console.debug(`[MeosAPI] Response ${response.status}:`, response.data?.substring?.(0, 200) + '...');
-        console.debug(`[MeosAPI] Full response:`, response.data);
         return response;
       },
       (error) => {
-        console.error('[MeosAPI] Response error:', error);
         return Promise.reject(this.handleApiError(error));
       }
     );
@@ -115,7 +110,6 @@ export class MeosApiClient {
       // Handle empty response
       const trimmedResponse = xmlString.trim();
       if (!trimmedResponse) {
-        console.log('[MeosAPI] Empty response received - MeOS lookup feature may be disabled or no data found');
         return null;
       }
       
@@ -143,7 +137,6 @@ export class MeosApiClient {
 
       return this.xmlToObject(xmlDoc.documentElement);
     } catch (error) {
-      console.error('[MeosAPI] XML parse error:', error);
       throw {
         message: error instanceof Error ? error.message : 'Failed to parse XML response',
         details: error,
@@ -334,8 +327,12 @@ export class MeosApiClient {
     if (params.dataA !== undefined) queryParams['dataA'] = params.dataA.toString();
     if (params.dataB !== undefined) queryParams['dataB'] = params.dataB.toString();
     
-    // Note: MeOS determines hired card status internally based on card number lookup
-    // No REST API parameters are needed - MeOS checks its internal hired card database
+    // CRITICAL: cardFee parameter tells MeOS this is a hired/rental card
+    // If cardFee > 0, MeOS marks the card as hired and alerts volunteers to collect it
+    if (params.cardFee && params.cardFee > 0) {
+      queryParams['cardfee'] = params.cardFee.toString();
+      console.log(`[MeosAPI] 💳 Marking card ${params.cardNumber} as HIRED with fee $${params.cardFee}`);
+    }
 
     console.log('[MeosAPI] Creating entry with correct endpoint:', queryParams);
     
@@ -745,6 +742,179 @@ export class MeosApiClient {
     }
 
     return response.data;
+  }
+
+  /**
+   * Get live runner status data for results integration
+   * This fetches runners who are checked-in but may not be in XML splits yet
+   */
+  async getLiveRunnerData(): Promise<any[]> {
+    try {
+      console.log('[MeosAPI] Fetching live runner status data...');
+      
+      // Try multiple endpoints that might contain current runner status
+      const possibleEndpoints = [
+        { get: 'liveres' }, // Live results if available
+        { get: 'competitors' },
+        { get: 'startlist' },
+        { get: 'results' },
+        { get: 'entries' },
+        { list: 'runners' },
+        { list: 'competitors' },
+        { type: 'liveres' },
+        { report: 'live' },
+        { report: 'current' },
+      ];
+
+      for (const params of possibleEndpoints) {
+        try {
+          console.log('[MeosAPI] Trying live data endpoint:', params);
+          const response = await this.makeRequest<any>(params, { retries: 0, timeout: 3000 });
+
+          if (response.success && response.data) {
+            console.log('[MeosAPI] Successfully got live data from:', params);
+            
+            // Parse runner data from various possible structures
+            const runners = this.extractRunnersFromResponse(response.data);
+            
+            if (runners.length > 0) {
+              console.log(`[MeosAPI] Found ${runners.length} live runners using endpoint:`, params);
+              return runners;
+            }
+          }
+        } catch (error) {
+          console.log(`[MeOS API] Live endpoint ${JSON.stringify(params)} failed:`, error);
+          continue;
+        }
+      }
+
+      console.warn('[MeosAPI] No live runner data found with any available endpoint');
+      return [];
+      
+    } catch (error) {
+      console.error('[MeosAPI] Failed to fetch live runner data:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Extract runners from MeOS API response in various formats
+   */
+  private extractRunnersFromResponse(data: any): any[] {
+    let runners: any[] = [];
+    
+    // Try different possible data structures
+    if (data?.MOPComplete?.PersonEntry) {
+      runners = Array.isArray(data.MOPComplete.PersonEntry) 
+        ? data.MOPComplete.PersonEntry 
+        : [data.MOPComplete.PersonEntry];
+    } else if (data?.PersonEntry) {
+      runners = Array.isArray(data.PersonEntry) 
+        ? data.PersonEntry 
+        : [data.PersonEntry];
+    } else if (data?.competition?.PersonEntry) {
+      runners = Array.isArray(data.competition.PersonEntry) 
+        ? data.competition.PersonEntry 
+        : [data.competition.PersonEntry];
+    } else if (data?.StartList?.PersonEntry) {
+      runners = Array.isArray(data.StartList.PersonEntry) 
+        ? data.StartList.PersonEntry 
+        : [data.StartList.PersonEntry];
+    } else if (data?.ResultList?.PersonResult) {
+      runners = Array.isArray(data.ResultList.PersonResult) 
+        ? data.ResultList.PersonResult 
+        : [data.ResultList.PersonResult];
+    } else if (data?.PersonResult) {
+      runners = Array.isArray(data.PersonResult) 
+        ? data.PersonResult 
+        : [data.PersonResult];
+    } else if (data?.Competitor) {
+      runners = Array.isArray(data.Competitor) 
+        ? data.Competitor 
+        : [data.Competitor];
+    }
+
+    // Transform to our standard format
+    return runners.map((runner: any) => {
+      // Handle different data structures from MeOS
+      const person = runner.Person || runner.person || runner;
+      const result = runner.Result || runner.result || {};
+      const card = runner.Card || runner.card || {};
+      const entryClass = runner.Class || runner.class || {};
+      
+      return {
+        id: runner['@attributes']?.id || runner.id,
+        name: {
+          first: person.Given?.['#text'] || person.Given || person.firstname || '',
+          last: person.Family?.['#text'] || person.Family || person.lastname || '',
+        },
+        fullName: person.Name?.['#text'] || person.Name || 
+                  `${person.Given?.['#text'] || person.Given || ''} ${person.Family?.['#text'] || person.Family || ''}`.trim(),
+        cardNumber: card.CardNo?.['#text'] || card.CardNo || runner.cardNumber || '0',
+        className: entryClass.Name?.['#text'] || entryClass.Name || runner.className || 'Unknown',
+        classId: entryClass['@attributes']?.id || entryClass.id || runner.classId,
+        club: person.Club?.['#text'] || person.Club || runner.club || '',
+        birthYear: person.BirthDate?.['#text'] || person.BirthDate || runner.birthYear,
+        sex: person.Sex?.['#text'] || person.Sex || runner.sex,
+        nationality: person.Nationality?.['#text'] || person.Nationality || runner.nationality || '',
+        
+        // Status information
+        status: this.determineRunnerStatus(runner, result),
+        startTime: result.StartTime?.['#text'] || result.StartTime || runner.startTime,
+        finishTime: result.Time?.['#text'] || result.Time || runner.finishTime,
+        totalTime: result.Time?.['#text'] || result.Time || runner.totalTime,
+        position: result.Position?.['#text'] || result.Position || runner.position,
+        
+        // Entry information
+        bib: runner.BibNumber?.['#text'] || runner.BibNumber || runner.bib,
+        fee: runner.Fee?.['#text'] || runner.Fee || runner.fee || '0',
+        paid: runner.Paid?.['#text'] || runner.Paid || runner.paid || '0',
+        
+        // Source tracking
+        dataSource: 'meos_api',
+        lastUpdated: new Date(),
+      };
+    });
+  }
+
+  /**
+   * Determine runner status based on MeOS data
+   */
+  private determineRunnerStatus(runner: any, result: any): string {
+    // Check result status first
+    const resultStatus = result?.Status?.['#text'] || result?.Status || result?.status;
+    if (resultStatus) {
+      const status = resultStatus.toLowerCase();
+      if (status === 'ok' && (result?.Time || result?.finishTime)) {
+        return 'finished';
+      } else if (status === 'dns') {
+        return 'dns';
+      } else if (status === 'dnf') {
+        return 'dnf';
+      } else if (status === 'dsq' || status === 'disqualified') {
+        return 'dsq';
+      } else if (status === 'mp' || status === 'mispunch') {
+        return 'mp';
+      }
+    }
+    
+    // Check entry status
+    const entryStatus = runner?.EntryStatus?.['#text'] || runner?.EntryStatus || runner?.status;
+    if (entryStatus && entryStatus.toLowerCase() !== 'ok') {
+      return entryStatus.toLowerCase();
+    }
+    
+    // Determine status based on times
+    const hasStartTime = !!(runner?.StartTime || runner?.startTime || result?.StartTime);
+    const hasFinishTime = !!(result?.Time || result?.finishTime || runner?.finishTime);
+    
+    if (hasFinishTime) {
+      return 'finished';
+    } else if (hasStartTime) {
+      return 'in_forest';
+    } else {
+      return 'checked_in';
+    }
   }
 
   /**

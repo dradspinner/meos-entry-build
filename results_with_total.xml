@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+
+<MOPComplete xmlns="http://www.melin.nu/mop">
+<results type="classindividual" to="Finish">
+<person cls="1" stat="1" st="3925100" rt="305200" place="1">
+<name id="30">Shawn Duffalo</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="3895600" rt="414800" place="2">
+<name id="35">David Cynamon</name>
+<org id="3">QOC</org>
+</person>
+<person cls="1" stat="1" st="4179100" rt="451200" place="3">
+<name id="38">Ann Grace MacMullan</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="3619500" rt="472400" place="4">
+<name id="53">Ron Bortz</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="3759900" rt="512000" place="5">
+<name id="15">Sneakers &amp; Spokes 2 Dougan</name>
+<org id="14">none</org>
+</person>
+<person cls="1" stat="1" st="3601400" rt="549700" place="6">
+<name id="48">Zhenyu Fan</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="3633200" rt="593300" place="7">
+<name id="6">Bob Burton</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="3608500" rt="601200" place="8">
+<name id="25">Brian Supplee</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="4133900" rt="608300" place="9">
+<name id="47">Janet Tryson</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="4542700" rt="653200" place="10">
+<name id="19">Mark Frank</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="3714500" rt="692300" place="11">
+<name id="70">Mark Kern</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="4287300" rt="700200" place="12">
+<name id="45">Richard Ebright</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="4052800" rt="730300" place="13">
+<name id="54">Jim Eagleton</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="3832900" rt="739000" place="14">
+<name id="50">Bob Fink</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="3944200" rt="778400" place="15">
+<name id="24">Bruce Zeidman</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="4271200" rt="884200" place="16">
+<name id="27">Rob Wilkison</name>
+<org id="4">HVO</org>
+</person>
+<person cls="1" stat="1" st="3676300" rt="1072200" place="17">
+<name id="11">Ed Dunlop</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="1" st="3882900" rt="1313700" place="18">
+<name id="16">Lyn Shaffer</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="3" st="4217600" rt="814100">
+<name id="21">Michael Woods</name>
+<org id="14">none</org>
+</person>
+<person cls="1" stat="4" st="3905800">
+<name id="22">Dave Morgan</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="1" stat="4" st="3955300">
+<name id="9">Tim Walsh</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="2" stat="1" st="4138100" rt="535900" place="1">
+<name id="46">Glen Tryson</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="2" stat="1" st="4101400" rt="561900" place="2">
+<name id="1">Cameron Guindi</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="2" stat="1" st="3794700" rt="588700" place="3">
+<name id="61">Anders Ryerson</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="2" stat="1" st="3757300" rt="641500" place="4">
+<name id="60">Svetlana Frolenko</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="2" stat="1" st="4183400" rt="661400" place="5">
+<name id="80">Nathan Kearney</name>
+<org id="3">QOC</org>
+</person>
+<person cls="2" stat="1" st="3663600" rt="694800" place="6">
+<name id="13">Kyle Schandall</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="2" stat="1" st="3649900" rt="709100" place="7">
+<name id="17">Ron Barron</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="2" stat="1" st="4568200" rt="743500" place="8">
+<name id="51">Katherine Moss</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="2" stat="1" st="3857300" rt="803600" place="9">
+<name id="29">Julie Keim</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="2" stat="1" st="4543000" rt="921400" place="10">
+<name id="18">Mary Frank</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="2" stat="1" st="4034200" rt="1240200" place="11">
+<name id="75">Team Carol Kluchinski</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="3" stat="1" st="3694800" rt="351400" place="1">
+<name id="69">Garrett Currie</name>
+<org id="14">none</org>
+</person>
+<person cls="3" stat="1" st="3687100" rt="412700" place="2">
+<name id="66">BC3</name>
+<org id="14">none</org>
+</person>
+<person cls="3" stat="1" st="4653000" rt="454400" place="3">
+<name id="8">Lena Kushleyeva</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="3" stat="1" st="4206700" rt="517100" place="4">
+<name id="55">Irina Pavlava</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="3" stat="1" st="3713300" rt="545200" place="5">
+<name id="68">AJ Bookman</name>
+<org id="14">none</org>
+</person>
+<person cls="3" stat="1" st="3650200" rt="546700" place="6">
+<name id="59">Bondar Bondar</name>
+<org id="14">none</org>
+</person>
+<person cls="3" stat="1" st="4184200" rt="593400" place="7">
+<name id="52">Darina Pavlava</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="3" stat="1" st="3852700" rt="685000" place="8">
+<name id="31">Cindy Thompson</name>
+<org id="14">none</org>
+</person>
+<person cls="3" stat="1" st="3666900" rt="718700" place="9">
+<name id="10">Troop 903 Nature Clan Valenti</name>
+<org id="14">none</org>
+</person>
+<person cls="3" stat="1" st="3726600" rt="737700" place="10">
+<name id="43">Samuel Forwood</name>
+<org id="14">none</org>
+</person>
+<person cls="3" stat="1" st="3926500" rt="759100" place="11">
+<name id="56">Adventure Mode Elmer</name>
+<org id="14">none</org>
+</person>
+<person cls="3" stat="1" st="4444300" rt="773400" place="12">
+<name id="23">Lewis Family Lewis</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="3" stat="3" st="4074700" rt="791000">
+<name id="76">Team K</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="4" stat="1" st="4232300" rt="400800" place="1">
+<name id="81">Sergei Ryzhkov</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="4" stat="1" st="4065700" rt="445100" place="2">
+<name id="7">Samuel Kolins</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="4" stat="1" st="4717200" rt="625100" place="3">
+<name id="32">Patrick Shannon</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="4" stat="1" st="3799700" rt="657000" place="4">
+<name id="62">Victor Frolenko</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="4" stat="1" st="4158300" rt="821300" place="5">
+<name id="41">Paige Suhocki</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="4" stat="1" st="4053800" rt="920500" place="6">
+<name id="42">Grace Suhocki</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="4" stat="1" st="3932100" rt="956400" place="7">
+<name id="40">Patty Carrigan</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="4" stat="1" st="3654700" rt="1047500" place="8">
+<name id="67">Christopher Hand</name>
+<org id="90010">WPOC</org>
+</person>
+<person cls="5" stat="1" st="4629400" rt="161100" place="1">
+<name id="33">Zealand Shannon</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="5" stat="1" st="4517400" rt="295200" place="2">
+<name id="3">Steve Mones</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="5" stat="1" st="3729100" rt="329900" place="3">
+<name id="79">Noah Secamiglio</name>
+<org id="14">none</org>
+</person>
+<person cls="5" stat="1" st="3769700" rt="507400" place="4">
+<name id="71">Mary Anne Detweiler</name>
+<org id="14">none</org>
+</person>
+<person cls="5" stat="1" st="4104000" rt="591700" place="5">
+<name id="77">Team Aurora</name>
+<org id="14">none</org>
+</person>
+<person cls="5" stat="1" st="4104700" rt="625000" place="6">
+<name id="78">Team Amanda</name>
+<org id="14">none</org>
+</person>
+<person cls="5" stat="3" st="4470800" rt="266800">
+<name id="64">Team Jennifer Harding</name>
+<org id="14">none</org>
+</person>
+<person cls="5" stat="4" st="3730000">
+<name id="63">Olivia Ryerson</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="6" stat="1" st="4465500" rt="230500" place="1">
+<name id="36">Luke Schiappa</name>
+<org id="14">none</org>
+</person>
+<person cls="6" stat="1" st="4497000" rt="266800" place="2">
+<name id="82">Nick Tamasco</name>
+<org id="14">none</org>
+</person>
+<person cls="6" stat="1" st="3925700" rt="302200" place="3">
+<name id="73">Team Gymnastics</name>
+<org id="14">none</org>
+</person>
+<person cls="6" stat="1" st="3861300" rt="319700" place="4">
+<name id="39">Alex Kruger</name>
+<org id="14">none</org>
+</person>
+<person cls="6" stat="1" st="3781400" rt="325100" place="5">
+<name id="58">Kevin Byrne</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="6" stat="1" st="4130700" rt="329200" place="6">
+<name id="34">Elizabeth Guindi</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="6" stat="1" st="3894800" rt="332100" place="7">
+<name id="20">Jan Summers</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="6" stat="1" st="3759200" rt="374500" place="8">
+<name id="14">Sneakers &amp; Spokes 1 Fraser</name>
+<org id="14">none</org>
+</person>
+<person cls="6" stat="1" st="3728200" rt="394000" place="9">
+<name id="44">Dexter Rothwell</name>
+<org id="14">none</org>
+</person>
+<person cls="6" stat="1" st="4216500" rt="402200" place="10">
+<name id="26">J n J McNealis</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="6" stat="1" st="3633600" rt="441500" place="11">
+<name id="5">Pat Burton</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="6" stat="1" st="3791100" rt="473800" place="12">
+<name id="72">U Can Pick</name>
+<org id="14">none</org>
+</person>
+<person cls="6" stat="1" st="3680000" rt="480900" place="13">
+<name id="12">Troop 903 Super Scouts Valenti</name>
+<org id="14">none</org>
+</person>
+<person cls="6" stat="1" st="4148700" rt="698100" place="14">
+<name id="57">Deborah Samans</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="6" stat="4" st="3240000">
+<name id="37">Kathy Urban</name>
+<org id="1">DVOA</org>
+</person>
+<person cls="6" stat="20" st="3240000">
+<name id="49">Ernie/Jenna Lamoreaux</name>
+<org id="14">none</org>
+</person>
+<person cls="6" stat="20" st="3240000">
+<name id="4">Matthew Pheiffer</name>
+<org id="1">DVOA</org>
+</person>
+</results>
+</MOPComplete>
