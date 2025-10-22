@@ -19,6 +19,9 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
   const [autoSave, setAutoSave] = useState<boolean>(true);
   const [isElectron, setIsElectron] = useState<boolean>(false);
   const [xmlImporting, setXmlImporting] = useState<boolean>(false);
+  const [searchText, setSearchText] = useState<string>('');
+  const [importMode, setImportMode] = useState<'merge' | 'replace' | null>(null);
+  const [pendingXmlFile, setPendingXmlFile] = useState<File | null>(null);
   const [form] = Form.useForm();
   
   // Removed continuous console logging to prevent spam
@@ -40,7 +43,7 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
   const startEdit = (runner?: LocalRunner) => {
     console.log('startEdit called with:', runner?.name);
     setEditing(runner || null);
-    setShowEditForm(!!runner);
+    setShowEditForm(true); // Always show form when startEdit is called
     setForceRender(prev => prev + 1); // Force a re-render
     
     form.resetFields();
@@ -66,7 +69,7 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
       }, 100);
     }
     
-    console.log('State updated - editing:', !!runner, 'showEditForm:', !!runner);
+    console.log('State updated - editing:', !!runner, 'showEditForm: true');
   };
 
   const saveRunner = async () => {
@@ -149,13 +152,32 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
     message.success(`Auto-save ${enabled ? 'enabled' : 'disabled'}`);
   };
 
+  const promptImportMode = (file: File) => {
+    setPendingXmlFile(file);
+    // Modal will be shown based on pendingXmlFile state
+  };
+
   const handleXMLImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     
+    // Clear the file input for next time
+    event.target.value = '';
+    
+    // Show modal to choose import mode
+    promptImportMode(file);
+  };
+
+  const executeXMLImport = async (mode: 'merge' | 'replace') => {
+    if (!pendingXmlFile) return;
+    
+    const file = pendingXmlFile;
+    setPendingXmlFile(null);
+    setImportMode(null);
     setXmlImporting(true);
+    
     try {
-      message.loading('Importing XML file...', 0);
+      message.loading(`${mode === 'merge' ? 'Merging' : 'Replacing with'} XML file...`, 0);
       
       const xmlContent = await file.text();
       const parser = new DOMParser();
@@ -228,16 +250,31 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
         return;
       }
       
-      // Clear existing and import new runners (replace mode)
-      localRunnerService.clearAllRunners();
+      // Clear existing runners only in replace mode
+      if (mode === 'replace') {
+        localRunnerService.clearAllRunners();
+      }
       
       let imported = 0;
+      let updated = 0;
+      const initialCount = localRunnerService.getAllRunners().length;
+      
       xmlRunners.forEach(runnerData => {
-        localRunnerService.addRunner(runnerData);
+        const runner = localRunnerService.addRunner(runnerData);
+        // addRunner returns the runner - check if it was new or updated
+        // In merge mode, we can check if the count increased
         imported++;
       });
       
-      message.success(`Successfully imported ${imported} runners from ${file.name}`);
+      const finalCount = localRunnerService.getAllRunners().length;
+      const newRunners = mode === 'merge' ? finalCount - initialCount : imported;
+      const updatedRunners = mode === 'merge' ? imported - newRunners : 0;
+      
+      if (mode === 'merge') {
+        message.success(`Merged ${imported} runners: ${newRunners} new, ${updatedRunners} updated`);
+      } else {
+        message.success(`Replaced database with ${imported} runners from ${file.name}`);
+      }
       refresh(); // Refresh the display
       
     } catch (error) {
@@ -246,33 +283,55 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
       message.error(`Failed to import XML: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setXmlImporting(false);
-      // Clear the file input
-      if (event.target) {
-        event.target.value = '';
-      }
     }
   };
 
+  const filteredRunners = runners.filter(r => {
+    if (!searchText) return true;
+    const search = searchText.toLowerCase();
+    return (
+      r.name.first?.toLowerCase().includes(search) ||
+      r.name.last?.toLowerCase().includes(search) ||
+      r.club?.toLowerCase().includes(search) ||
+      r.phone?.toLowerCase().includes(search) ||
+      r.email?.toLowerCase().includes(search) ||
+      r.cardNumber?.toString().includes(search)
+    );
+  });
+
   const columns = [
-    { title: 'First Name', dataIndex: ['name','first'], key: 'first', sorter: (a: any, b: any) => (a.name.first||'').localeCompare(b.name.first||'') },
-    { title: 'Last Name', dataIndex: ['name','last'], key: 'last', sorter: (a: any, b: any) => (a.name.last||'').localeCompare(b.name.last||'') },
-    { title: 'Year Born', dataIndex: 'birthYear', key: 'birthYear', width: 100 },
-    { title: 'Club', dataIndex: 'club', key: 'club' },
-    { title: 'Sex', dataIndex: 'sex', key: 'sex', width: 80 },
-    { title: 'Phone', dataIndex: 'phone', key: 'phone' },
-    { title: 'Email', dataIndex: 'email', key: 'email' },
-    { title: 'SI Card', dataIndex: 'cardNumber', key: 'cardNumber', width: 100 },
+    { title: 'First Name', dataIndex: ['name','first'], key: 'first', width: 120, sorter: (a: any, b: any) => (a.name.first||'').localeCompare(b.name.first||'') },
+    { title: 'Last Name', dataIndex: ['name','last'], key: 'last', width: 120, sorter: (a: any, b: any) => (a.name.last||'').localeCompare(b.name.last||'') },
+    { title: 'Year', dataIndex: 'birthYear', key: 'birthYear', width: 70 },
+    { title: 'Club', dataIndex: 'club', key: 'club', width: 100 },
+    { title: 'Sex', dataIndex: 'sex', key: 'sex', width: 50 },
+    { title: 'Phone', dataIndex: 'phone', key: 'phone', width: 120 },
+    { title: 'Email', dataIndex: 'email', key: 'email', width: 150 },
+    { title: 'Card', dataIndex: 'cardNumber', key: 'cardNumber', width: 80 },
     {
-      title: 'Actions', key: 'actions', render: (_: any, r: LocalRunner) => (
-        <Space>
-          <Button size="small" icon={<EditOutlined />} onClick={() => {
-            console.log('Edit button clicked for:', r.name);
-            startEdit(r);
-          }}>Edit</Button>
-          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => {
-            console.log('Delete button clicked for:', r.name);
-            delRunner(r);
-          }}>Delete</Button>
+      title: 'Actions', key: 'actions', width: 90, render: (_: any, r: LocalRunner) => (
+        <Space size="small">
+          <Button 
+            type="text" 
+            size="small" 
+            icon={<EditOutlined />} 
+            onClick={() => {
+              console.log('Edit button clicked for:', r.name);
+              startEdit(r);
+            }}
+            title="Edit"
+          />
+          <Button 
+            type="text" 
+            size="small" 
+            danger 
+            icon={<DeleteOutlined />} 
+            onClick={() => {
+              console.log('Delete button clicked for:', r.name);
+              delRunner(r);
+            }}
+            title="Delete"
+          />
         </Space>
       )
     }
@@ -282,7 +341,7 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
     <Modal
       title={
         <Space>
-          Runner Database ({runners.length})
+          Runner Database ({filteredRunners.length} {searchText ? `of ${runners.length}` : ''})
           <Button size="small" icon={<PlusOutlined />} onClick={() => startEdit(undefined)}>Add Runner</Button>
           <input type="file" id="xmlFileInput" accept=".xml" style={{display: 'none'}} onChange={handleXMLImport} />
           <Button 
@@ -300,6 +359,15 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
       footer={null}
       width={1000}
     >
+      {/* Search Box */}
+      <Input.Search 
+        placeholder="Search by name, club, phone, email, or card number"
+        allowClear
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
+        style={{ marginBottom: 16 }}
+      />
+
       {/* Cloud Sync Controls */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space split={<Divider type="vertical" />} wrap>
@@ -348,12 +416,12 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
         </Space>
       </Card>
       
-      <Table rowKey={(r: LocalRunner)=>r.id} dataSource={runners} columns={columns} size="small" pagination={false} />
+      <Table rowKey={(r: LocalRunner)=>r.id} dataSource={filteredRunners} columns={columns} size="small" pagination={false} />
       
-      {/* Edit Runner Modal */}
+      {/* Edit/Add Runner Modal */}
       <Modal
-        title={`Edit Runner: ${editing ? `${editing.name.first} ${editing.name.last}` : ''}`}
-        open={showEditForm && editing !== null}
+        title={editing ? `Edit Runner: ${editing.name.first} ${editing.name.last}` : 'Add New Runner'}
+        open={showEditForm}
         onCancel={() => { setEditing(null); setShowEditForm(false); }}
         footer={[
           <Button key="cancel" onClick={() => { setEditing(null); setShowEditForm(false); }}>
@@ -418,6 +486,74 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
             </Col>
           </Row>
         </Form>
+      </Modal>
+
+      {/* Import Mode Selection Modal */}
+      <Modal
+        title="Import XML - Choose Mode"
+        open={pendingXmlFile !== null}
+        onCancel={() => {
+          setPendingXmlFile(null);
+          setImportMode(null);
+        }}
+        footer={[
+          <Button key="cancel" onClick={() => {
+            setPendingXmlFile(null);
+            setImportMode(null);
+          }}>
+            Cancel
+          </Button>,
+          <Button 
+            key="merge" 
+            type="default" 
+            onClick={() => executeXMLImport('merge')}
+            style={{ backgroundColor: '#52c41a', color: 'white' }}
+          >
+            Merge/Sync
+          </Button>,
+          <Button 
+            key="replace" 
+            type="primary" 
+            danger
+            onClick={() => executeXMLImport('replace')}
+          >
+            Replace All
+          </Button>
+        ]}
+        width={500}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <Typography.Paragraph>
+            <strong>File:</strong> {pendingXmlFile?.name}
+          </Typography.Paragraph>
+          
+          <Typography.Paragraph>
+            How do you want to import this XML file?
+          </Typography.Paragraph>
+
+          <Card size="small" style={{ backgroundColor: '#f6ffed', borderColor: '#b7eb8f' }}>
+            <Typography.Title level={5} style={{ marginTop: 0 }}>
+              <ImportOutlined /> Merge/Sync (Recommended)
+            </Typography.Title>
+            <ul style={{ marginBottom: 0 }}>
+              <li>Adds new runners from XML</li>
+              <li>Updates existing runners with XML data</li>
+              <li>Keeps existing runners not in XML</li>
+              <li><strong>Safe:</strong> No data loss</li>
+            </ul>
+          </Card>
+
+          <Card size="small" style={{ backgroundColor: '#fff1f0', borderColor: '#ffccc7' }}>
+            <Typography.Title level={5} style={{ marginTop: 0, color: '#cf1322' }}>
+              ⚠️ Replace All
+            </Typography.Title>
+            <ul style={{ marginBottom: 0 }}>
+              <li>Deletes ALL existing runners</li>
+              <li>Replaces with only runners from XML</li>
+              <li><strong>Warning:</strong> Cannot be undone</li>
+            </ul>
+          </Card>
+        </Space>
       </Modal>
     </Modal>
   );
