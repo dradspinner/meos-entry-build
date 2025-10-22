@@ -31,6 +31,7 @@ import {
   SettingOutlined,
   EditOutlined,
   ImportOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
 import { localRunnerService, LocalRunner } from '../services/localRunnerService';
 
@@ -124,6 +125,16 @@ export const DatabaseManager: React.FC = () => {
       }
     } else {
       message.info('File picker not available. Please enter the path manually.');
+    }
+  };
+
+  const handleClose = () => {
+    // Close the Electron window
+    if (window.electronAPI && window.close) {
+      window.close();
+    } else {
+      // Fallback for web mode - just show a message
+      message.info('Close the window to return to main application');
     }
   };
 
@@ -400,6 +411,13 @@ export const DatabaseManager: React.FC = () => {
                     Sync from Cloud
                   </Button>
                 )}
+                <Button 
+                  icon={<CloseOutlined />}
+                  onClick={handleClose}
+                  danger
+                >
+                  Close
+                </Button>
               </Space>
             </Col>
           </Row>
