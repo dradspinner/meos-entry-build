@@ -276,9 +276,17 @@ class LocalRunnerService {
 
   /**
    * Import runners from entries (learn from manual entries)
+   * Never learns from group entries (nationality > 1)
    */
   learnFromEntry(entry: any): void {
     if (!entry.name?.first || !entry.name?.last) return;
+    
+    // Skip group entries - they should never be in the runner database
+    const natNum = parseInt(entry.nationality || '0', 10);
+    if (natNum > 1) {
+      console.log(`[LocalRunner] Skipping group entry: ${entry.name.first} ${entry.name.last} (nationality=${natNum})`);
+      return;
+    }
 
     const runnerData = {
       name: {
@@ -380,16 +388,25 @@ class LocalRunnerService {
 
   /**
    * Bulk import runners from CSV data (when entries are imported)
+   * Never learns from group entries (nationality > 1)
    */
   bulkLearnFromEntries(entries: any[]): { imported: number, updated: number } {
     let imported = 0;
     let updated = 0;
+    let skippedGroups = 0;
     const initialCount = this.runners.length;
 
     console.log(`[LocalRunner] Learning from ${entries.length} imported entries...`);
 
     entries.forEach(entry => {
       if (!entry.name?.first || !entry.name?.last) return;
+      
+      // Skip group entries - they should never be in the runner database
+      const natNum = parseInt(entry.nationality || '0', 10);
+      if (natNum > 1) {
+        skippedGroups++;
+        return;
+      }
 
       const runnerData = {
         name: {
@@ -457,7 +474,7 @@ class LocalRunnerService {
 
     if (imported > 0 || updated > 0) {
       this.saveRunners();
-      console.log(`[LocalRunner] Bulk import complete: ${imported} new, ${updated} updated`);
+      console.log(`[LocalRunner] Bulk import complete: ${imported} new, ${updated} updated${skippedGroups > 0 ? `, ${skippedGroups} groups skipped` : ''}`);
     }
 
     return { imported, updated };

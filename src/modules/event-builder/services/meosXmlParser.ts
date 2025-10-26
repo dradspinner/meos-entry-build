@@ -402,7 +402,7 @@ export class MeOSXMLParser {
         xml += `<Id>${cls.id}</Id>\n`;
         xml += `<Updated>${timestamp}</Updated>\n`;
         xml += `<Name>${this.escapeXML(cls.name)}</Name>\n`;
-        xml += `<Course>${cls.courseId}</Course>\n`;
+        if (cls.courseId) xml += `<Course>${cls.courseId}</Course>\n`;
         xml += '<oData>\n';
         if (cls.allowQuickEntry) xml += '<AllowQuickEntry>1</AllowQuickEntry>\n';
         if (cls.classType) xml += `<ClassType>${this.escapeXML(cls.classType)}</ClassType>\n`;

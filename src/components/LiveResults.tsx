@@ -3,6 +3,7 @@ import { Card, Typography, Table, Tag, Space, Alert, Spin, Badge } from 'antd';
 import { TrophyOutlined, ClockCircleOutlined, UserOutlined, FireOutlined } from '@ant-design/icons';
 import { meosApi } from '../services/meosApi';
 import { eventMetaService } from '../services/eventMetaService';
+import { localEntryService } from '../services/localEntryService';
 
 const { Title, Text } = Typography;
 
@@ -46,54 +47,131 @@ const LiveResults: React.FC = () => {
       try {
         setError(null);
         
-        // Fetch all entries from MeOS
-        const entries = await meosApi.getAllEntries();
+        // Fetch results from MeOS (includes timing data and competitor IDs)
+        const resultsData = await meosApi.getResults({ preliminary: true });
         
-        if (!entries || entries.length === 0) {
+        // Fetch checked-in runners from local database
+        const localEntries = localEntryService.getAllEntries()
+          .filter(entry => entry.status === 'checked-in' || entry.checkedInAt);
+        
+        console.log(`[LiveResults] Local checked-in: ${localEntries.length}`);
+        
+        // Fetch all classes to get course lengths and class names
+        const classes = await meosApi.getAllClasses();
+        const classMap = new Map<string, any>();
+        classes.forEach(cls => {
+          classMap.set(cls.id, cls);
+        });
+        
+        // Parse results from MeOS
+        const classGroups = new Map<string, RunnerResult[]>();
+        
+        if (resultsData && resultsData.results) {
+          const results = resultsData.results;
+          const persons = Array.isArray(results.person) ? results.person : (results.person ? [results.person] : []);
+          
+          console.log(`[LiveResults] MeOS results: ${persons.length} persons`);
+          
+          persons.forEach((person: any) => {
+            const competitorId = person.name?.['@attributes']?.id;
+            const classId = person['@attributes']?.cls;
+            const classInfo = classMap.get(classId);
+            const className = classInfo?.name || `Class ${classId}`;
+            
+            const name = person.name?.['#text'] || person.name || '';
+            const nameParts = name.split(' ');
+            const firstName = nameParts.slice(0, -1).join(' ') || nameParts[0] || 'Unknown';
+            const lastName = nameParts[nameParts.length - 1] || 'Runner';
+            
+            const club = person.org?.['#text'] || person.org || '';
+            const place = parseInt(person['@attributes']?.place || '0');
+            
+            // rt is in 1/10 seconds, convert to seconds
+            const rtValue = parseInt(person['@attributes']?.rt || '0');
+            const totalTime = rtValue / 10;
+            
+            // st is start time in 1/10 seconds after 00:00:00
+            const stValue = parseInt(person['@attributes']?.st || '0');
+            
+            const status = parseInt(person['@attributes']?.stat || '0');
+            const statusCode = status === 1 ? 'OK' : (status === 0 ? 'unknown' : 'DNF');
+            
+            const runner: RunnerResult = {
+              id: competitorId || `${firstName}_${lastName}`,
+              name: {
+                first: firstName,
+                last: lastName
+              },
+              club: club,
+              className: className,
+              classId: classId,
+              position: place,
+              status: status === 1 ? 'finished' : (stValue > 0 ? 'in_forest' : 'checked_in'),
+              startTime: stValue > 0 ? new Date(stValue * 100) : undefined,
+              totalTime: totalTime > 0 ? totalTime : undefined,
+              courseLength: classInfo?.course?.length || undefined
+            };
+            
+            const classKey = `${className}-${classId}`;
+            if (!classGroups.has(classKey)) {
+              classGroups.set(classKey, []);
+            }
+            classGroups.get(classKey)!.push(runner);
+          });
+        }
+        
+        // Add local checked-in entries that are NOT in MeOS results yet
+        const meosNamesSet = new Set<string>();
+        classGroups.forEach(runners => {
+          runners.forEach(r => {
+            meosNamesSet.add(`${r.name.first}_${r.name.last}`.toLowerCase());
+          });
+        });
+        
+        localEntries.forEach(localEntry => {
+          const key = `${localEntry.name.first}_${localEntry.name.last}`.toLowerCase();
+          
+          if (!meosNamesSet.has(key)) {
+            const runner: RunnerResult = {
+              id: localEntry.id,
+              name: localEntry.name,
+              club: localEntry.club,
+              className: localEntry.className,
+              classId: localEntry.classId,
+              position: 0,
+              status: 'checked_in'
+            };
+            
+            const classKey = `${runner.className}-${runner.classId}`;
+            if (!classGroups.has(classKey)) {
+              classGroups.set(classKey, []);
+            }
+            classGroups.get(classKey)!.push(runner);
+          }
+        });
+        
+        console.log(`[LiveResults] Total classes: ${classGroups.size}`);
+        
+        if (classGroups.size === 0) {
           setResults([]);
           setLastUpdate(new Date());
           return;
         }
 
-        // Process entries into class-grouped results
-        const classGroups = new Map<string, RunnerResult[]>();
-
-        entries.forEach((entry: any) => {
-          const runner: RunnerResult = {
-            id: entry.id || `${entry.name?.first}_${entry.name?.last}`,
-            name: {
-              first: entry.name?.first || 'Unknown',
-              last: entry.name?.last || 'Runner'
-            },
-            club: entry.club || '',
-            className: entry.className || 'Unknown',
-            classId: entry.classId || 'unknown',
-            position: 0, // Will be calculated after sorting
-            status: determineStatus(entry),
-            startTime: entry.startTime ? new Date(entry.startTime) : undefined,
-            finishTime: entry.finishTime ? new Date(entry.finishTime) : undefined,
-            totalTime: entry.totalTime || undefined,
-            courseLength: entry.courseLength || undefined
-          };
-
-          const classKey = `${runner.className}-${runner.classId}`;
-          if (!classGroups.has(classKey)) {
-            classGroups.set(classKey, []);
-          }
-          classGroups.get(classKey)!.push(runner);
-        });
-
         // Process each class
         const processedResults: ClassResults[] = [];
 
-        classGroups.forEach((runners, classKey) => {
+        for (const [classKey, runners] of classGroups.entries()) {
           const className = runners[0]?.className || 'Unknown';
           const classId = runners[0]?.classId || 'unknown';
 
           // Sort runners by status and time
           runners.sort((a, b) => {
-            // Finished runners first, sorted by time
+            // Finished runners first, sorted by position
             if (a.status === 'finished' && b.status === 'finished') {
+              if (a.position && b.position) {
+                return a.position - b.position;
+              }
               if (a.totalTime && b.totalTime) {
                 return a.totalTime - b.totalTime;
               }
@@ -115,18 +193,20 @@ const LiveResults: React.FC = () => {
             if (a.status === 'in_forest' && b.status === 'checked_in') return -1;
             if (a.status === 'checked_in' && b.status === 'in_forest') return 1;
             
+            // Sort checked-in runners alphabetically by last name
+            if (a.status === 'checked_in' && b.status === 'checked_in') {
+              return a.name.last.localeCompare(b.name.last);
+            }
+            
             // Otherwise maintain original order
             return 0;
           });
 
-          // Assign positions and calculate times
-          let position = 1;
+          // Calculate additional metrics for finished runners
           let bestTime: number | undefined;
           
-          runners.forEach((runner, index) => {
+          runners.forEach((runner) => {
             if (runner.status === 'finished' && runner.totalTime) {
-              runner.position = position++;
-              
               // Set best time (first finished runner)
               if (!bestTime) {
                 bestTime = runner.totalTime;
@@ -143,15 +223,13 @@ const LiveResults: React.FC = () => {
               if (bestTime) {
                 runner.timeBehind = runner.totalTime - bestTime;
               }
-              
-              // Calculate lost time (simplified - actual lost time would need split analysis)
-              if (bestTime) {
-                runner.lostTime = runner.totalTime - bestTime;
-              }
-            } else {
+            } else if (!runner.position) {
               runner.position = 0; // Not finished yet
             }
           });
+          
+          // Fetch detailed split analysis for lost time calculation
+          await enrichRunnersWithSplitAnalysis(runners);
 
           processedResults.push({
             className,
@@ -160,7 +238,7 @@ const LiveResults: React.FC = () => {
             courseLength: runners[0]?.courseLength,
             bestTime
           });
-        });
+        }
 
         // Sort classes alphabetically
         processedResults.sort((a, b) => a.className.localeCompare(b.className));
@@ -184,20 +262,112 @@ const LiveResults: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  /**
+   * Enrich runners with split analysis data from MeOS
+   * Fetches detailed competitor data including lost time from splits
+   */
+  const enrichRunnersWithSplitAnalysis = async (runners: RunnerResult[]) => {
+    const finishedRunners = runners.filter(r => r.status === 'finished' && r.id);
+    
+    for (const runner of finishedRunners) {
+      try {
+        // Try to parse runner ID if it's a string
+        const runnerId = typeof runner.id === 'string' ? parseInt(runner.id) : runner.id;
+        
+        if (isNaN(runnerId)) {
+          console.warn(`[LiveResults] Skipping runner with invalid ID: ${runner.id}`);
+          continue;
+        }
+        
+        // Fetch detailed competitor data with split analysis
+        const details = await meosApi.lookupCompetitorById({ id: runnerId });
+        
+        if (details && details.splits) {
+          // Calculate total lost time from all splits
+          runner.lostTime = calculateTotalLostTime(details.splits);
+        }
+      } catch (error) {
+        console.warn(`[LiveResults] Failed to get split analysis for ${runner.name.first} ${runner.name.last}:`, error);
+      }
+    }
+  };
+  
+  /**
+   * Calculate total lost time from split analysis
+   * 
+   * IMPORTANT: In MeOS C++ code and REST API:
+   * - 'lost' attribute = time behind leg leader (after[ix])
+   * - 'behind' attribute = accumulated time behind (afterAcc[ix])
+   * - 'mistake' attribute = actual calculated lost/missed time (delta[ix] from getSplitAnalysis)
+   * 
+   * The total lost time is the sum of POSITIVE 'mistake' values, not 'lost' values.
+   * This matches MeOS's getMissedTime() method which sums positive deltaTimes.
+   */
+  const calculateTotalLostTime = (splits: any[]): number => {
+    if (!splits || splits.length === 0) return 0;
+    
+    let totalLostSeconds = 0;
+    
+    for (const split of splits) {
+      if (split.analysis && split.analysis.mistake) {
+        // Parse time string (MM:SS format) to seconds
+        // Only positive values are considered (as per MeOS getMissedTime logic)
+        const mistakeSeconds = parseTimeStringToSeconds(split.analysis.mistake);
+        if (mistakeSeconds > 0) {
+          totalLostSeconds += mistakeSeconds;
+        }
+      }
+    }
+    
+    return totalLostSeconds;
+  };
+  
+  /**
+   * Parse MeOS time string (MM:SS or M:SS) to seconds
+   */
+  const parseTimeStringToSeconds = (timeStr: string): number => {
+    if (!timeStr || timeStr === '') return 0;
+    
+    const parts = timeStr.split(':');
+    if (parts.length >= 2) {
+      const minutes = parseInt(parts[0]) || 0;
+      const seconds = parseFloat(parts[1]) || 0;
+      return minutes * 60 + seconds;
+    }
+    
+    return 0;
+  };
+
   const determineStatus = (entry: any): RunnerResult['status'] => {
+    // Priority 1: If they have a finish time and total time, they're finished
     if (entry.finishTime && entry.totalTime) {
       return 'finished';
-    } else if (entry.startTime && !entry.finishTime) {
+    }
+    
+    // Priority 2: If they have a start time but no finish, they're in the forest
+    // This will automatically transition checked-in runners once MeOS gives them a start time
+    if (entry.startTime && !entry.finishTime) {
       return 'in_forest';
-    } else if (entry.status === 'checked_in' || (!entry.startTime && !entry.finishTime)) {
-      return 'checked_in';
-    } else if (entry.status === 'dns') {
+    }
+    
+    // Priority 3: Check for explicit status from MeOS (DNS, DNF, DSQ)
+    if (entry.status === 'dns') {
       return 'dns';
-    } else if (entry.status === 'dnf') {
+    }
+    if (entry.status === 'dnf') {
       return 'dnf';
-    } else if (entry.status === 'dsq') {
+    }
+    if (entry.status === 'dsq') {
       return 'dsq';
     }
+    
+    // Priority 4: If marked as checked in locally, or no timing data yet
+    // This includes local checked-in entries and MeOS entries without timing
+    if (entry.status === 'checked_in' || entry.checkedInAt || (!entry.startTime && !entry.finishTime)) {
+      return 'checked_in';
+    }
+    
+    // Default: treat as checked in if we can't determine status
     return 'checked_in';
   };
 
@@ -289,12 +459,17 @@ const LiveResults: React.FC = () => {
               </Text>
             </div>
           </Space>
-          <Space align="center">
-            <ClockCircleOutlined style={{ fontSize: '16px' }} />
-            <Text style={{ color: '#e6f7ff' }}>
-              {loading ? 'Updating...' : `Last updated: ${lastUpdate?.toLocaleTimeString() || 'Never'}`}
+          <Space align="center" direction="vertical" size="small" style={{ alignItems: 'flex-end' }}>
+            <Space align="center">
+              <ClockCircleOutlined style={{ fontSize: '16px' }} />
+              <Text style={{ color: '#e6f7ff' }}>
+                {loading ? 'Updating...' : `Last updated: ${lastUpdate?.toLocaleTimeString() || 'Never'}`}
+              </Text>
+              {loading && <Spin size="small" />}
+            </Space>
+            <Text style={{ color: '#e6f7ff', fontSize: '12px' }}>
+              Total: {results.reduce((sum, cls) => sum + cls.runners.length, 0)} runners
             </Text>
-            {loading && <Spin size="small" />}
           </Space>
         </Space>
       </Card>

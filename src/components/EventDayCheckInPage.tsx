@@ -13,7 +13,7 @@ const EventDayCheckInPage: React.FC<EventDayCheckInPageProps> = ({ onBack }) => 
       <div style={{ marginBottom: 16 }}>
         <Button icon={<ArrowLeftOutlined />} onClick={onBack} size="large">Back to Event Day Dashboard</Button>
       </div>
-      <EventDayCheckIn />
+      <EventDayCheckIn visible={true} onClose={onBack} />
     </div>
   );
 };

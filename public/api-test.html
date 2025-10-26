@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeOS REST API Tester</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+        }
+        .instruction {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #2196f3;
+        }
+        .endpoint-section {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .endpoint-section h2 {
+            margin-top: 0;
+            color: #1976d2;
+        }
+        button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #1976d2;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            background: #263238;
+            color: #aed581;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .error {
+            color: #ef5350;
+        }
+        .success {
+            color: #66bb6a;
+        }
+        .info {
+            color: #42a5f5;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .controls {
+            margin: 10px 0;
+        }
+        label {
+            display: inline-block;
+            min-width: 100px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 MeOS REST API Tester</h1>
+    
+    <div class="instruction">
+        <strong>📌 Instructions:</strong>
+        <ol>
+            <li>Make sure MeOS is running with REST API enabled</li>
+            <li>Open browser DevTools Console (F12)</li>
+            <li>Click buttons below to test each endpoint</li>
+            <li>Watch the console for detailed API call logs with 🔵/✅/❌ emojis</li>
+        </ol>
+    </div>
+
+    <!-- Competition Info -->
+    <div class="endpoint-section">
+        <h2>📋 Competition Info</h2>
+        <p><code>GET /meos?get=competition</code></p>
+        <button onclick="testCompetition()">Get Competition</button>
+        <div id="competition-result" class="result" style="display:none;"></div>
+    </div>
+
+    <!-- All Classes -->
+    <div class="endpoint-section">
+        <h2>🎯 All Classes</h2>
+        <p><code>GET /meos?get=class</code></p>
+        <button onclick="testAllClasses()">Get All Classes</button>
+        <div id="classes-result" class="result" style="display:none;"></div>
+    </div>
+
+    <!-- All Competitors -->
+    <div class="endpoint-section">
+        <h2>👥 All Competitors</h2>
+        <p><code>GET /meos?get=competitor</code></p>
+        <div class="controls">
+            <label>Filter by class:</label>
+            <input type="text" id="competitor-class-filter" placeholder="e.g. 1,2,3 (optional)">
+        </div>
+        <button onclick="testAllCompetitors()">Get All Competitors</button>
+        <div id="competitors-result" class="result" style="display:none;"></div>
+    </div>
+
+    <!-- Results -->
+    <div class="endpoint-section">
+        <h2>🏆 Results</h2>
+        <p><code>GET /meos?get=result</code></p>
+        <div class="controls">
+            <label>Preliminary:</label>
+            <select id="result-preliminary">
+                <option value="true">Yes (include unfinished)</option>
+                <option value="false">No (finished only)</option>
+            </select>
+            <br>
+            <label>Class IDs:</label>
+            <input type="text" id="result-class-ids" placeholder="e.g. 1,2,3 (optional)">
+        </div>
+        <button onclick="testResults()">Get Results</button>
+        <div id="results-result" class="result" style="display:none;"></div>
+    </div>
+
+    <!-- Lookup Competitor -->
+    <div class="endpoint-section">
+        <h2>🔎 Lookup Individual Competitor</h2>
+        <p><code>GET /meos?lookup=competitor</code></p>
+        <div class="controls">
+            <label>Search by:</label>
+            <select id="lookup-type" onchange="updateLookupFields()">
+                <option value="id">Competitor ID</option>
+                <option value="card">Card Number</option>
+                <option value="bib">Bib Number</option>
+                <option value="name">Name + Club</option>
+            </select>
+            <br>
+            <div id="lookup-id-field">
+                <label>Competitor ID:</label>
+                <input type="number" id="lookup-id" placeholder="e.g. 1">
+            </div>
+            <div id="lookup-card-field" style="display:none;">
+                <label>Card Number:</label>
+                <input type="number" id="lookup-card" placeholder="e.g. 123456">
+            </div>
+            <div id="lookup-bib-field" style="display:none;">
+                <label>Bib Number:</label>
+                <input type="number" id="lookup-bib" placeholder="e.g. 42">
+            </div>
+            <div id="lookup-name-field" style="display:none;">
+                <label>Name:</label>
+                <input type="text" id="lookup-name" placeholder="e.g. John Smith">
+                <br>
+                <label>Club:</label>
+                <input type="text" id="lookup-club" placeholder="e.g. DVOA">
+            </div>
+        </div>
+        <button onclick="testLookupCompetitor()">Lookup Competitor</button>
+        <div id="lookup-result" class="result" style="display:none;"></div>
+    </div>
+
+    <script type="module">
+        import { meosApi } from '../src/services/meosApi.ts';
+        
+        // Make meosApi globally available for button clicks
+        window.meosApi = meosApi;
+        
+        // Test connection on load
+        window.addEventListener('DOMContentLoaded', async () => {
+            console.log('🔵 Testing MeOS API connection...');
+            const connected = await meosApi.testConnection();
+            if (connected) {
+                console.log('✅ MeOS API is connected and ready!');
+            } else {
+                console.error('❌ Could not connect to MeOS API. Make sure MeOS is running.');
+            }
+        });
+    </script>
+
+    <script>
+        function updateLookupFields() {
+            const type = document.getElementById('lookup-type').value;
+            document.getElementById('lookup-id-field').style.display = type === 'id' ? 'block' : 'none';
+            document.getElementById('lookup-card-field').style.display = type === 'card' ? 'block' : 'none';
+            document.getElementById('lookup-bib-field').style.display = type === 'bib' ? 'block' : 'none';
+            document.getElementById('lookup-name-field').style.display = type === 'name' ? 'block' : 'none';
+        }
+
+        async function testCompetition() {
+            const resultDiv = document.getElementById('competition-result');
+            resultDiv.style.display = 'block';
+            resultDiv.textContent = '⏳ Loading...';
+            
+            try {
+                const data = await window.meosApi.getCompetition();
+                resultDiv.innerHTML = `<span class="success">✅ Success!</span>\n\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Error:</span>\n${error.message}`;
+            }
+        }
+
+        async function testAllClasses() {
+            const resultDiv = document.getElementById('classes-result');
+            resultDiv.style.display = 'block';
+            resultDiv.textContent = '⏳ Loading...';
+            
+            try {
+                const data = await window.meosApi.getAllClasses();
+                resultDiv.innerHTML = `<span class="success">✅ Success! Found ${data.length} classes</span>\n\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Error:</span>\n${error.message}`;
+            }
+        }
+
+        async function testAllCompetitors() {
+            const resultDiv = document.getElementById('competitors-result');
+            resultDiv.style.display = 'block';
+            resultDiv.textContent = '⏳ Loading...';
+            
+            try {
+                const classFilter = document.getElementById('competitor-class-filter').value;
+                const classIds = classFilter ? classFilter.split(',').map(id => parseInt(id.trim())) : undefined;
+                
+                const data = await window.meosApi.getAllCompetitors(classIds);
+                resultDiv.innerHTML = `<span class="success">✅ Success! Found ${data.length} competitors</span>\n\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Error:</span>\n${error.message}`;
+            }
+        }
+
+        async function testResults() {
+            const resultDiv = document.getElementById('results-result');
+            resultDiv.style.display = 'block';
+            resultDiv.textContent = '⏳ Loading...';
+            
+            try {
+                const preliminary = document.getElementById('result-preliminary').value === 'true';
+                const classIdsStr = document.getElementById('result-class-ids').value;
+                const classIds = classIdsStr ? classIdsStr.split(',').map(id => parseInt(id.trim())) : undefined;
+                
+                const data = await window.meosApi.getResults({
+                    preliminary,
+                    classIds
+                });
+                resultDiv.innerHTML = `<span class="success">✅ Success!</span>\n\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Error:</span>\n${error.message}`;
+            }
+        }
+
+        async function testLookupCompetitor() {
+            const resultDiv = document.getElementById('lookup-result');
+            resultDiv.style.display = 'block';
+            resultDiv.textContent = '⏳ Loading...';
+            
+            try {
+                const type = document.getElementById('lookup-type').value;
+                const params = {};
+                
+                if (type === 'id') {
+                    params.id = parseInt(document.getElementById('lookup-id').value);
+                } else if (type === 'card') {
+                    params.card = parseInt(document.getElementById('lookup-card').value);
+                } else if (type === 'bib') {
+                    params.bib = parseInt(document.getElementById('lookup-bib').value);
+                } else if (type === 'name') {
+                    params.name = document.getElementById('lookup-name').value;
+                    params.club = document.getElementById('lookup-club').value;
+                }
+                
+                const data = await window.meosApi.lookupCompetitorById(params);
+                resultDiv.innerHTML = `<span class="success">✅ Success!</span>\n\n${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Error:</span>\n${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

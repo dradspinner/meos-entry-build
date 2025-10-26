@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Card, Row, Col, Button, Typography, Statistic, Table, Input, Tag, Space, Badge, message, Alert, Modal } from 'antd';
-import { CheckCircleOutlined, UserAddOutlined, DatabaseOutlined, ArrowLeftOutlined, UsbOutlined, EditOutlined, IdcardOutlined, LoginOutlined, ReloadOutlined, SyncOutlined, DeleteOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, UserAddOutlined, DatabaseOutlined, ArrowLeftOutlined, UsbOutlined, EditOutlined, IdcardOutlined, LoginOutlined, ReloadOutlined, SyncOutlined, DeleteOutlined, TrophyOutlined } from '@ant-design/icons';
 import RunnerDatabaseManager from './RunnerDatabaseManager';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
 import { localRunnerService } from '../services/localRunnerService';
@@ -194,22 +194,47 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
     message.success(`Runner database refreshed: ${stats.total} runners loaded`);
   };
 
+  const handleOpenLiveResults = () => {
+    // Open live results in a new window
+    const liveResultsUrl = window.location.origin + '/live_results.html';
+    window.open(liveResultsUrl, 'live-results');
+    console.log('🏆 Opening Live Results Display...');
+  };
+
   return (
-    <div style={{ padding: '24px', maxWidth: 1200, margin: '0 auto' }}>
-      {onBack && (
-        <div style={{ marginBottom: 16 }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={onBack} size="large">
-            Back to Operations
-          </Button>
-        </div>
-      )}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100%', overflowX: 'hidden' }}>
+      <div style={{ padding: '16px 16px 0 16px' }}>
+      <Row justify="space-between" align="middle" style={{ marginBottom: 4 }}>
+        <Col>
+          <Title level={2} style={{ marginBottom: 0, fontSize: '20px' }}>
+            Event Day Dashboard - {meta?.name || 'DVOA Event'} - {meta?.date || new Date().toISOString().split('T')[0]}
+          </Title>
+        </Col>
+        <Col>
+          <Space>
+            <Button 
+              icon={<TrophyOutlined />} 
+              type="primary" 
+              size="small"
+              onClick={handleOpenLiveResults}
+              title="Open Live Results in New Window"
+              style={{ background: '#52c41a', borderColor: '#52c41a' }}
+            >
+              Live Results
+            </Button>
+            {onBack && (
+              <Button icon={<ArrowLeftOutlined />} onClick={onBack} size="small">
+                Back to Operations
+              </Button>
+            )}
+            {onBackToMain && <Button size="small" onClick={onBackToMain}>Back to Main</Button>}
+          </Space>
+        </Col>
+      </Row>
+      
+      <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>Check-in pre-registered runners or register new entries</Text>
 
-      <Title level={2} style={{ marginBottom: 8 }}>
-        Event Day Dashboard - {meta?.name || 'DVOA Event'} - {meta?.date || new Date().toISOString().split('T')[0]}
-      </Title>
-      <Text type="secondary">Check-in pre-registered runners or register new entries</Text>
-
-      <Row justify="space-between" align="middle" style={{ marginTop: 8 }}>
+      <Row justify="space-between" align="middle" style={{ marginBottom: 8 }}>
         <Col>
           <Space>
             <Badge 
@@ -221,70 +246,61 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
             <Button size="small" icon={<DatabaseOutlined />} onClick={()=>setRunnerDbOpen(true)} title="Open Runner Database">Runner Database</Button>
           </Space>
         </Col>
-        <Col>
-          <Space>
-            {onBack && <Button size="small" onClick={onBack}>Back</Button>}
-            {onBackToMain && <Button size="small" onClick={onBackToMain}>Back to Main</Button>}
-          </Space>
-        </Col>
       </Row>
 
-      <Row gutter={[16, 16]} style={{ marginTop: 16, marginBottom: 16 }}>
-        <Col xs={24} sm={6}>
-          <Card hoverable onClick={() => setFilterKey('all')}>
-            <Statistic title="Total Entries" value={totalEntries} />
+      <Row gutter={[8, 8]} style={{ marginTop: 12, marginBottom: 12 }}>
+        <Col xs={12} sm={4}>
+          <Card size="small" hoverable onClick={() => setFilterKey('all')} bodyStyle={{ padding: '12px' }}>
+            <Statistic title="Total Entries" value={totalEntries} valueStyle={{ fontSize: '20px' }} />
           </Card>
         </Col>
-        <Col xs={24} sm={6}>
-          <Card hoverable onClick={() => setFilterKey('checked-in')}>
-            <Statistic title="Checked In" value={checkedIn} />
+        <Col xs={12} sm={4}>
+          <Card size="small" hoverable onClick={() => setFilterKey('checked-in')} bodyStyle={{ padding: '12px' }}>
+            <Statistic title="Checked In" value={checkedIn} valueStyle={{ fontSize: '20px' }} />
           </Card>
         </Col>
-        <Col xs={24} sm={6}>
-          <Card hoverable onClick={() => setFilterKey('pending')}>
-            <Statistic title="Pending" value={pending} />
+        <Col xs={12} sm={4}>
+          <Card size="small" hoverable onClick={() => setFilterKey('pending')} bodyStyle={{ padding: '12px' }}>
+            <Statistic title="Pending" value={pending} valueStyle={{ fontSize: '20px' }} />
           </Card>
         </Col>
-        <Col xs={24} sm={6}>
-          <Card hoverable onClick={() => setFilterKey('needsRental')}>
-            <Statistic title="Needs Rental" value={needsRental} />
+        <Col xs={12} sm={4}>
+          <Card size="small" hoverable onClick={() => setFilterKey('needsRental')} bodyStyle={{ padding: '12px' }}>
+            <Statistic title="Needs Rental" value={needsRental} valueStyle={{ fontSize: '20px' }} />
           </Card>
         </Col>
-        <Col xs={24} sm={6}>
-          <Card>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Space>
-                <UsbOutlined />
-                <Badge status={readerStatus.connected ? 'success' : 'error'} text={readerStatus.connected ? 'Reader Connected' : 'Reader Disconnected'} />
-                {lastCard && <Tag color="green">Last: {lastCard}</Tag>}
-              </Space>
-              <Space>
-                {!readerStatus.connected && (
-                  <Button size="small" icon={<UsbOutlined />} onClick={async ()=>{try{await sportIdentService.connect(); setReaderStatus(sportIdentService.getStatus());}catch{}}}>Connect</Button>
-                )}
-              </Space>
+        <Col xs={24} sm={8}>
+          <Card size="small" bodyStyle={{ padding: '12px' }}>
+            <Space size="small">
+              <UsbOutlined />
+              <Badge status={readerStatus.connected ? 'success' : 'error'} text={readerStatus.connected ? 'Connected' : 'Disconnected'} />
+              {lastCard && <Tag color="green">Last: {lastCard}</Tag>}
+              {!readerStatus.connected && (
+                <Button size="small" icon={<UsbOutlined />} onClick={async ()=>{try{await sportIdentService.connect(); setReaderStatus(sportIdentService.getStatus());}catch{}}}>Connect</Button>
+              )}
             </Space>
           </Card>
         </Col>
       </Row>
 
-      <Card style={{ marginTop: 16, marginBottom: 12 }}>
+      <Card size="small" bodyStyle={{ padding: '8px 16px' }} style={{ marginTop: 8, marginBottom: 8 }}>
         <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-          <Space>
-            <Button type="primary" icon={<UserAddOutlined />} onClick={() => setShowSameDay(true)}>
+          <Space size="small">
+            <Button type="primary" size="small" icon={<UserAddOutlined />} onClick={() => setShowSameDay(true)}>
               New Registration
             </Button>
             <Input.Search 
+              size="small"
               allowClear 
               placeholder="Search name, club, or card"
               value={filter}
               onChange={(e)=>setFilter(e.target.value)}
               style={{ width: 320 }}
             />
-            <Button icon={<ReloadOutlined />} onClick={refresh}>Refresh</Button>
+            <Button size="small" icon={<ReloadOutlined />} onClick={refresh}>Refresh</Button>
           </Space>
-          <Space>
-            <Button loading={verifying} onClick={async ()=>{
+          <Space size="small">
+            <Button size="small" loading={verifying} onClick={async ()=>{
               try {
                 setVerifying(true);
                 const list = await meosApi.getAllEntries();
@@ -306,8 +322,11 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
           </Space>
         </Space>
       </Card>
+      </div>
 
-      <Table size="small" className="table-compact"
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 16px 16px 16px' }}>
+      <Table size="small" className="table-compact" sticky scroll={{ x: 'max-content' }}
+        key={entries.length}
         rowKey={(r: LocalEntry)=>r.id}
         dataSource={entries.filter(e => {
           // Quick filter by metric
@@ -324,6 +343,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
           );
         })}
         pagination={false}
+        showSorterTooltip={false}
         columns={[
           { 
             title: 'First Name', 
@@ -450,11 +470,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
           )}
         ]}
       />
-
-      <Card style={{ marginTop: 24 }}>
-        <Title level={4}><DatabaseOutlined /> Notes</Title>
-        <Paragraph type="secondary">Scan card at any time: if matched, the entry opens for quick edit; otherwise assign it to a selected runner with "Assign Last Card".</Paragraph>
-      </Card>
+      </div>
 
       {/* Edit Entry Modal */}
       <EntryEditModal 

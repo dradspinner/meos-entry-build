@@ -4,7 +4,7 @@
     <title>Runner Database Management & Recovery</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; }
-        .container { max-width: 900px; }
+        .container { max-width: 1400px; }
         .section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
         .success { background-color: #d4edda; border-color: #c3e6cb; }
         .warning { background-color: #fff3cd; border-color: #ffeaa7; }
@@ -17,6 +17,16 @@
         .runner-count { font-size: 24px; font-weight: bold; color: #28a745; }
         .step { margin: 10px 0; padding: 10px; border-left: 4px solid #007bff; }
         .hidden { display: none; }
+        .runner-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .runner-table th { background-color: #007bff; color: white; padding: 10px 8px; text-align: left; border: 1px solid #0056b3; position: sticky; top: 0; cursor: pointer; user-select: none; }
+        .runner-table th:hover { background-color: #0056b3; }
+        .runner-table th::after { content: ' ↕'; opacity: 0.5; font-size: 10px; }
+        .runner-table th.sort-asc::after { content: ' ▲'; opacity: 1; }
+        .runner-table th.sort-desc::after { content: ' ▼'; opacity: 1; }
+        .runner-table td { padding: 8px; border: 1px solid #ddd; }
+        .runner-table tbody tr:nth-child(even) { background-color: #f8f9fa; }
+        .runner-table tbody tr:hover { background-color: #e9ecef; }
+        .table-container { max-height: 600px; overflow-y: auto; border: 1px solid #ddd; }
     </style>
 </head>
 <body>
@@ -49,6 +59,7 @@
         <div id="recoveryActions" class="section warning">
             <h3>Recovery & Management Actions</h3>
             <button onclick="checkLocalStorage()">Check localStorage Backup</button>
+            <button onclick="loadFromCloudFile()">Load from Cloud File</button>
             <button onclick="recoverFromLocalStorage()">Recover from localStorage</button>
             <button onclick="exportCurrentData()">Export Current Data</button>
             <button onclick="showAllRunners()">Show All Current Runners</button>
@@ -61,7 +72,7 @@
         </div>
         
         <div id="runnerList" class="section" style="display: none;">
-            <h3>Runner List</h3>
+            <h3>Runner List <button onclick="refreshRunnerDisplay()" style="margin-left: 10px;">↻ Refresh</button></h3>
             <div id="runnerListContent"></div>
         </div>
     </div>
@@ -69,8 +80,10 @@
     <script>
         // Global variables
         const STORAGE_KEY = 'local_runner_database';
+        const DEFAULT_CLOUD_PATH = 'C:\\Users\\drads\\OneDrive\\DVOA\\DVOA MeOS Advanced\\runner_database.json';
         let xmlRunners = [];
         let currentRunners = [];
+        let cloudFileLoaded = false;
         
         // Utility functions
         function log(message, type = 'info') {
@@ -476,6 +489,128 @@
             checkCurrentDatabase();
         }
         
+        // Global sorting state
+        let currentSortColumn = null;
+        let currentSortDirection = 'asc';
+        let displayedRunners = [];
+        
+        function sortRunners(column) {
+            // Toggle direction if clicking same column
+            if (currentSortColumn === column) {
+                currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSortColumn = column;
+                currentSortDirection = 'asc';
+            }
+            
+            displayedRunners.sort((a, b) => {
+                let valA, valB;
+                
+                switch(column) {
+                    case 'first':
+                        valA = (a.name.first || '').toLowerCase();
+                        valB = (b.name.first || '').toLowerCase();
+                        break;
+                    case 'last':
+                        valA = (a.name.last || '').toLowerCase();
+                        valB = (b.name.last || '').toLowerCase();
+                        break;
+                    case 'club':
+                        valA = (a.club || '').toLowerCase();
+                        valB = (b.club || '').toLowerCase();
+                        break;
+                    case 'card':
+                        valA = parseInt(a.cardNumber) || 0;
+                        valB = parseInt(b.cardNumber) || 0;
+                        break;
+                    case 'year':
+                        valA = parseInt(a.birthYear) || 0;
+                        valB = parseInt(b.birthYear) || 0;
+                        break;
+                    case 'sex':
+                        valA = (a.sex || '').toLowerCase();
+                        valB = (b.sex || '').toLowerCase();
+                        break;
+                    case 'phone':
+                        valA = (a.phone || '').toLowerCase();
+                        valB = (b.phone || '').toLowerCase();
+                        break;
+                    case 'email':
+                        valA = (a.email || '').toLowerCase();
+                        valB = (b.email || '').toLowerCase();
+                        break;
+                    default:
+                        return 0;
+                }
+                
+                let comparison = 0;
+                if (typeof valA === 'string') {
+                    comparison = valA.localeCompare(valB);
+                } else {
+                    comparison = valA - valB;
+                }
+                
+                return currentSortDirection === 'asc' ? comparison : -comparison;
+            });
+            
+            renderRunnerTable();
+        }
+        
+        function renderRunnerTable() {
+            const runnerCount = displayedRunners.length;
+            
+            let runnerListHtml = `
+                <h4>All ${runnerCount} Runners:</h4>
+                <div class="table-container">
+                    <table class="runner-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th onclick="sortRunners('first')" class="${currentSortColumn === 'first' ? 'sort-' + currentSortDirection : ''}">First Name</th>
+                                <th onclick="sortRunners('last')" class="${currentSortColumn === 'last' ? 'sort-' + currentSortDirection : ''}">Last Name</th>
+                                <th onclick="sortRunners('club')" class="${currentSortColumn === 'club' ? 'sort-' + currentSortDirection : ''}">Club</th>
+                                <th onclick="sortRunners('card')" class="${currentSortColumn === 'card' ? 'sort-' + currentSortDirection : ''}">Card</th>
+                                <th onclick="sortRunners('year')" class="${currentSortColumn === 'year' ? 'sort-' + currentSortDirection : ''}">Year</th>
+                                <th onclick="sortRunners('sex')" class="${currentSortColumn === 'sex' ? 'sort-' + currentSortDirection : ''}">Sex</th>
+                                <th onclick="sortRunners('phone')" class="${currentSortColumn === 'phone' ? 'sort-' + currentSortDirection : ''}">Phone</th>
+                                <th onclick="sortRunners('email')" class="${currentSortColumn === 'email' ? 'sort-' + currentSortDirection : ''}">Email</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            displayedRunners.forEach((runner, index) => {
+                const club = runner.club || 'N/A';
+                const card = runner.cardNumber || 'N/A';
+                const year = runner.birthYear || 'N/A';
+                const sex = runner.sex || 'N/A';
+                const phone = runner.phone || '';
+                const email = runner.email || '';
+                
+                runnerListHtml += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${runner.name.first}</td>
+                        <td>${runner.name.last}</td>
+                        <td>${club}</td>
+                        <td>${card}</td>
+                        <td>${year}</td>
+                        <td>${sex}</td>
+                        <td>${phone}</td>
+                        <td>${email}</td>
+                    </tr>
+                `;
+            });
+            
+            runnerListHtml += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            document.getElementById('runnerListContent').innerHTML = runnerListHtml;
+        }
+        
         function showAllRunners() {
             log('Displaying all current runners...', 'info');
             
@@ -494,24 +629,18 @@
                     return;
                 }
                 
-                // Sort runners by name
-                const sortedRunners = data.sort((a, b) => {
+                // Sort runners by name initially
+                displayedRunners = data.sort((a, b) => {
                     const nameA = `${a.name.first} ${a.name.last}`.toLowerCase();
                     const nameB = `${b.name.first} ${b.name.last}`.toLowerCase();
                     return nameA.localeCompare(nameB);
                 });
                 
-                let runnerListHtml = `<h4>All ${runnerCount} Runners:</h4><pre>`;
-                sortedRunners.forEach((runner, index) => {
-                    const club = runner.club || 'N/A';
-                    const card = runner.cardNumber || 'N/A';
-                    const year = runner.birthYear || 'N/A';
-                    const sex = runner.sex || 'N/A';
-                    runnerListHtml += `${String(index + 1).padStart(3, ' ')}. ${runner.name.first} ${runner.name.last} | ${club} | Card: ${card} | ${year} | ${sex}\n`;
-                });
-                runnerListHtml += '</pre>';
+                // Reset sorting state
+                currentSortColumn = null;
+                currentSortDirection = 'asc';
                 
-                document.getElementById('runnerListContent').innerHTML = runnerListHtml;
+                renderRunnerTable();
                 document.getElementById('runnerList').style.display = 'block';
                 
                 log(`Displayed all ${runnerCount} runners`, 'success');
@@ -521,9 +650,102 @@
             }
         }
         
+        // Load runners from cloud file
+        function loadFromCloudFile(autoLoad = false) {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            
+            // Set default path hint
+            if (!autoLoad) {
+                log(`Please select the cloud file from: ${DEFAULT_CLOUD_PATH}`, 'info');
+            }
+            
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const jsonData = JSON.parse(event.target.result);
+                        if (!jsonData.runners || !Array.isArray(jsonData.runners)) {
+                            log('Invalid cloud file format', 'error');
+                            return;
+                        }
+                        
+                        // Load into localStorage
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(jsonData.runners));
+                        currentRunners = jsonData.runners;
+                        cloudFileLoaded = true;
+                        
+                        log(`Successfully loaded ${jsonData.runners.length} runners from cloud file: ${file.name}`, 'success');
+                        checkCurrentDatabase();
+                        
+                        // Refresh display if shown
+                        if (document.getElementById('runnerList').style.display !== 'none') {
+                            showAllRunners();
+                        }
+                    } catch (error) {
+                        log(`Error loading cloud file: ${error.message}`, 'error');
+                    }
+                };
+                reader.readAsText(file);
+            };
+            input.click();
+        }
+        
+        // Add function to refresh runner display
+        function refreshRunnerDisplay() {
+            log('Refreshing runner display...', 'info');
+            showAllRunners();
+        }
+        
+        // Listen for localStorage changes from other tabs/windows
+        if (typeof window !== 'undefined') {
+            window.addEventListener('storage', (e) => {
+                if (e.key === STORAGE_KEY) {
+                    log('Detected localStorage update from another tab/window', 'info');
+                    checkCurrentDatabase();
+                    // If runner list is visible, refresh it
+                    if (document.getElementById('runnerList').style.display !== 'none') {
+                        refreshRunnerDisplay();
+                    }
+                }
+            });
+            
+            // Listen for custom events (same-tab updates)
+            window.addEventListener('localRunnerDatabaseUpdate', () => {
+                log('Detected runner database update', 'info');
+                checkCurrentDatabase();
+                // If runner list is visible, refresh it
+                if (document.getElementById('runnerList').style.display !== 'none') {
+                    refreshRunnerDisplay();
+                }
+            });
+        }
+        
         // Initialize on page load
         window.onload = function() {
             log('Database Manager initialized', 'info');
+            
+            // Show message about cloud file
+            const cloudMsg = document.createElement('div');
+            cloudMsg.className = 'section info';
+            cloudMsg.innerHTML = `
+                <h4>⚠️ Important: Load Cloud File for Latest Data</h4>
+                <p>The Electron app and this HTML utility use different storage locations.</p>
+                <p><strong>To see the latest runner data (including phone/email):</strong></p>
+                <ol>
+                    <li>Click <strong>"Load from Cloud File"</strong> button above</li>
+                    <li>Navigate to: <code>${DEFAULT_CLOUD_PATH}</code></li>
+                    <li>Select <code>runner_database.json</code></li>
+                    <li>Click <strong>"Show All Current Runners"</strong></li>
+                </ol>
+                <button onclick="loadFromCloudFile()" class="primary">📂 Load Cloud File Now</button>
+            `;
+            document.getElementById('results').appendChild(cloudMsg);
+            
             checkCurrentDatabase();
             checkLocalStorage();
         };

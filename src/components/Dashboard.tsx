@@ -7,9 +7,7 @@ import {
   FileTextOutlined,
   UsergroupAddOutlined,
   TrophyOutlined,
-  DatabaseOutlined,
-  ImportOutlined,
-  SafetyOutlined
+  GlobalOutlined
 } from '@ant-design/icons';
 
 const { Title, Paragraph } = Typography;
@@ -17,16 +15,14 @@ const { Title, Paragraph } = Typography;
 interface DashboardProps {
   onNavigateToEventBuilder: () => void;
   onNavigateToEventDayOps: () => void;
+  onNavigateToResultsExport?: () => void;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   onNavigateToEventBuilder, 
-  onNavigateToEventDayOps 
+  onNavigateToEventDayOps,
+  onNavigateToResultsExport
 }) => {
-  const handleOpenDatabaseManager = () => {
-    const dbManagerUrl = window.location.origin + '/database_manager.html';
-    window.open(dbManagerUrl, 'database-manager', 'width=1000,height=800,scrollbars=yes,resizable=yes');
-  };
 
   return (
     <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
@@ -164,66 +160,64 @@ const Dashboard: React.FC<DashboardProps> = ({
         </Col>
       </Row>
 
-      {/* Database Management Section */}
-      <Row gutter={[24, 24]} style={{ marginTop: '40px' }}>
-        <Col xs={24}>
-          <Card 
-            title={
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <DatabaseOutlined style={{ marginRight: '8px', color: '#52c41a' }} />
-                <span>Runner Database Management</span>
-              </div>
-            }
-            style={{ background: '#f6ffed', border: '1px solid #b7eb8f' }}
-          >
-            <Row gutter={16}>
-              <Col xs={24} md={16}>
+      {onNavigateToResultsExport && (
+        <Row gutter={[24, 24]} style={{ marginTop: '24px' }}>
+          <Col xs={24} lg={12}>
+            <Card 
+              hoverable
+              style={{ height: '100%' }}
+              cover={
+                <div style={{ 
+                  padding: '40px', 
+                  textAlign: 'center', 
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white'
+                }}>
+                  <GlobalOutlined style={{ fontSize: '48px', marginBottom: '16px' }} />
+                  <Title level={3} style={{ color: 'white', margin: 0 }}>
+                    Post Results Online
+                  </Title>
+                </div>
+              }
+            >
+              <div style={{ padding: '8px' }}>
                 <Paragraph>
-                  Manage your runner database with recovery, import, and backup tools. 
-                  Import from MeOS XML backups, recover from localStorage, or export your data.
+                  <strong>Results Export</strong>
                 </Paragraph>
+                <Paragraph>
+                  Generate professional HTML results pages from OE12 XML files 
+                  for posting to your club website.
+                </Paragraph>
+                
                 <div style={{ marginBottom: '16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-                    <ImportOutlined style={{ marginRight: '8px', color: '#52c41a' }} />
-                    <span>XML Import from MeOS</span>
+                    <FileTextOutlined style={{ marginRight: '8px', color: '#1890ff' }} />
+                    <span>Import OE12 XML Results</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-                    <SafetyOutlined style={{ marginRight: '8px', color: '#52c41a' }} />
-                    <span>Recovery from localStorage</span>
+                    <GlobalOutlined style={{ marginRight: '8px', color: '#1890ff' }} />
+                    <span>Generate HTML Pages</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <FileTextOutlined style={{ marginRight: '8px', color: '#52c41a' }} />
-                    <span>Database Export & Backup</span>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
+                    <TrophyOutlined style={{ marginRight: '8px', color: '#1890ff' }} />
+                    <span>Professional Styling</span>
                   </div>
                 </div>
-              </Col>
-              <Col xs={24} md={8} style={{ textAlign: 'center' }}>
+
                 <Button 
-                  type="primary"
-                  size="large"
-                  icon={<DatabaseOutlined />}
-                  onClick={handleOpenDatabaseManager}
-                  style={{ 
-                    height: '48px', 
-                    fontSize: '16px',
-                    background: '#52c41a',
-                    borderColor: '#52c41a'
-                  }}
+                  type="primary" 
+                  size="large" 
+                  block
+                  onClick={onNavigateToResultsExport}
+                  style={{ height: '48px', fontSize: '16px' }}
                 >
-                  Open Database Manager
+                  Launch Results Export
                 </Button>
-                <Paragraph style={{ 
-                  marginTop: '8px', 
-                  fontSize: '12px', 
-                  color: '#666' 
-                }}>
-                  Opens in new window
-                </Paragraph>
-              </Col>
-            </Row>
-          </Card>
-        </Col>
-      </Row>
+              </div>
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       <Divider style={{ margin: '40px 0' }} />
       

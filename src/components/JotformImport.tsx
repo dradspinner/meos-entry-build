@@ -15,11 +15,11 @@ import {
   Modal
 } from 'antd';
 import { 
-  InboxOutlined, 
   FileTextOutlined, 
   CheckCircleOutlined,
   ExclamationCircleOutlined,
-  UploadOutlined 
+  UploadOutlined,
+  ReloadOutlined 
 } from '@ant-design/icons';
 import Papa from 'papaparse';
 import type { Entry, EntryParams } from '../types/index.js';
@@ -28,7 +28,6 @@ import { localEntryService } from '../services/localEntryService';
 import { localRunnerService } from '../services/localRunnerService';
 
 const { Title, Text } = Typography;
-const { Dragger } = Upload;
 
 interface JotformEntry {
   // These will be mapped from the actual Jotform/MeOS CSV columns
@@ -89,6 +88,7 @@ const JotformImport: React.FC = () => {
   const [lastImportStats, setLastImportStats] = useState<{newCount: number, updatedCount: number} | null>(null);
   const [meosConnected, setMeosConnected] = useState<boolean | null>(null);
   const [checkingMeos, setCheckingMeos] = useState(false);
+  const [lastUsedDirectory, setLastUsedDirectory] = useState<string | null>(null);
   
   // Pagination state for CSV preview table
   const [csvPagination, setCsvPagination] = useState({
@@ -232,24 +232,10 @@ const JotformImport: React.FC = () => {
           }
 
           // Auto-save for OE12 immediately (attempt will set directory automatically in Electron)
+          // MeOS status check removed - already checked before file picker
           if (detectedFormat === 'OE12') {
-            if (meosConnected) {
-              // Use raw data for OE12 import to preserve headers
-              handleSaveLocally({ detectedFormat: 'OE12', data: results.data, fileNameOverride: file.name });
-            } else {
-              Modal.confirm({
-                title: 'MeOS API not connected',
-                content: (
-                  <div>
-                    <p>The MeOS API is not reachable. Class mapping will fall back to built-in mappings.</p>
-                    <p>Please start MeOS REST API for best results, or continue with fallback mapping.</p>
-                  </div>
-                ),
-                okText: 'Proceed (fallback mapping)',
-                cancelText: 'Cancel',
-                onOk: () => handleSaveLocally({ detectedFormat: 'OE12', data: results.data, fileNameOverride: file.name }),
-              });
-            }
+            // Use raw data for OE12 import to preserve headers
+            handleSaveLocally({ detectedFormat: 'OE12', data: results.data, fileNameOverride: file.name });
           }
         } catch (error) {
           message.error('Failed to parse CSV data. Please check the format.');
@@ -287,13 +273,105 @@ const JotformImport: React.FC = () => {
     }
   };
 
-  // Check for existing working directory on component mount
-  React.useEffect(() => {
-    const dirName = localEntryService.getWorkingDirectoryName();
-    if (dirName) {
-      setWorkingDirectory(dirName);
+  // Handle opening CSV file with MeOS check first
+  const handleOpenCSVFile = async () => {
+    // Check MeOS status first
+    const isMeosConnected = await checkMeos();
+    
+    if (!isMeosConnected) {
+      // Show modal with options if MeOS is not connected
+      Modal.confirm({
+        title: '⚠️ MeOS API Not Running',
+        width: 600,
+        content: (
+          <div>
+            <p>The MeOS API is not currently running. Class mapping will fall back to built-in mappings.</p>
+            <p style={{ marginTop: '12px' }}><strong>What would you like to do?</strong></p>
+            <ul style={{ marginTop: '8px', paddingLeft: '20px' }}>
+              <li><strong>Recheck:</strong> Start MeOS API and click "Recheck" to verify connection</li>
+              <li><strong>Continue:</strong> Proceed with fallback mapping (may need manual fixes later)</li>
+              <li><strong>Cancel:</strong> Go back to fix MeOS setup</li>
+            </ul>
+          </div>
+        ),
+        icon: <ExclamationCircleOutlined style={{ color: '#faad14' }} />,
+        okText: 'Continue Anyway',
+        cancelText: 'Cancel',
+        okButtonProps: { type: 'default' },
+        footer: (_, { OkBtn, CancelBtn }) => (
+          <>
+            <Button onClick={() => Modal.destroyAll()}>Cancel</Button>
+            <Button 
+              loading={checkingMeos}
+              onClick={async () => {
+                const connected = await checkMeos();
+                if (connected) {
+                  message.success('✅ MeOS API is now connected!');
+                  Modal.destroyAll();
+                  // Proceed to open file
+                  openNativeFilePicker();
+                } else {
+                  message.error('❌ MeOS API still not reachable');
+                }
+              }}
+            >
+              Recheck
+            </Button>
+            <Button 
+              type="primary"
+              onClick={() => {
+                Modal.destroyAll();
+                // Proceed to open file even without MeOS
+                openNativeFilePicker();
+              }}
+            >
+              Continue Anyway
+            </Button>
+          </>
+        ),
+      });
+    } else {
+      // MeOS is connected, proceed directly
+      openNativeFilePicker();
     }
-  }, []);
+  };
+  
+  // Open the native file picker
+  const openNativeFilePicker = async () => {
+    try {
+      // @ts-ignore - File System Access API
+      const [fileHandle] = await (window as any).showOpenFilePicker({
+        multiple: false,
+        types: [{
+          description: 'CSV files',
+          accept: { 'text/csv': ['.csv'] }
+        }],
+        // Start in last used directory if available
+        startIn: lastUsedDirectory ? 'documents' : undefined
+      });
+      
+      if (fileHandle) {
+        const file = await fileHandle.getFile();
+        
+        // Set working directory from the file's location
+        await localEntryService.setWorkingDirectoryFromFileHandle(fileHandle);
+        const dirName = localEntryService.getWorkingDirectoryName();
+        if (dirName) {
+          setWorkingDirectory(dirName);
+          setLastUsedDirectory(dirName);
+        }
+        
+        // Parse the file
+        handleFileUpload(file);
+      }
+    } catch (err) {
+      // User cancelled or API not available
+      if (err instanceof Error && !err.message.includes('aborted')) {
+        console.error('Failed to open file picker:', err);
+        message.error('Failed to open file picker');
+      }
+    }
+  };
 
   // Check MeOS connectivity on mount
   const checkMeos = async () => {
@@ -301,14 +379,23 @@ const JotformImport: React.FC = () => {
       setCheckingMeos(true);
       const ok = await meosApi.testConnection();
       setMeosConnected(ok);
+      return ok;
     } catch {
       setMeosConnected(false);
+      return false;
     } finally {
       setCheckingMeos(false);
     }
   };
 
-  React.useEffect(() => { checkMeos(); }, []);
+  React.useEffect(() => { 
+    checkMeos();
+    // Load last used directory on mount
+    const dirName = localEntryService.getWorkingDirectoryName();
+    if (dirName) {
+      setLastUsedDirectory(dirName);
+    }
+  }, []);
 
   // Helper function to check if a name is properly capitalized
   const isProperlyCapitalized = (name: string): boolean => {
@@ -1001,6 +1088,41 @@ const JotformImport: React.FC = () => {
 
   return (
     <div style={{ padding: '24px' }}>
+      {/* MeOS Status Indicator */}
+      <Card 
+        size="small" 
+        style={{ marginBottom: '16px', background: meosConnected ? '#f6ffed' : '#fff7e6' }}
+        bordered={true}
+      >
+        <Space>
+          <div style={{ 
+            width: '12px', 
+            height: '12px', 
+            borderRadius: '50%', 
+            background: meosConnected ? '#52c41a' : '#faad14',
+            animation: checkingMeos ? 'pulse 1.5s ease-in-out infinite' : 'none'
+          }} />
+          <Text strong>
+            MeOS API Status: 
+            {checkingMeos ? (
+              <Text type="secondary"> Checking...</Text>
+            ) : meosConnected ? (
+              <Text type="success"> Connected</Text>
+            ) : (
+              <Text type="warning"> Not Connected</Text>
+            )}
+          </Text>
+          <Button 
+            size="small" 
+            icon={<ReloadOutlined />}
+            loading={checkingMeos}
+            onClick={checkMeos}
+          >
+            Refresh
+          </Button>
+        </Space>
+      </Card>
+
       <Title level={2}>
         <FileTextOutlined /> Registration CSV Import
       </Title>
@@ -1030,96 +1152,41 @@ const JotformImport: React.FC = () => {
       <Divider />
 
       {/* File Upload Section */}
-      <Card title="1. Upload CSV File" style={{ marginBottom: '24px' }}>
-        <Dragger
-          accept=".csv"
-          beforeUpload={handleFileUpload}
-          showUploadList={false}
-          disabled={importStatus.isImporting}
-          onDrop={async (e) => {
-            try {
-              const dt = e.dataTransfer;
-              if (!dt) return;
-              const item = dt.items && dt.items.length > 0 ? dt.items[0] : null;
-              if (!item) return;
-              // Try modern handle first
-              if ('getAsFileSystemHandle' in item) {
-                // @ts-ignore - experimental API
-                const handle = await (item as any).getAsFileSystemHandle();
-                if (handle && handle.kind === 'file') {
-                  // Try to set working directory from the dropped file's location
-                  await localEntryService.setWorkingDirectoryFromFileHandle(handle);
-                  const dirName = localEntryService.getWorkingDirectoryName();
-                  if (dirName) setWorkingDirectory(dirName);
-                }
-              } else if ('webkitGetAsEntry' in item) {
-                // @ts-ignore - legacy API in Chromium
-                const entry = (item as any).webkitGetAsEntry && (item as any).webkitGetAsEntry();
-                if (entry && entry.isFile && entry.getParent) {
-                  entry.getParent(async (parent: any) => {
-                    if (parent) {
-                      // We can't convert legacy entry to a handle; just set a name hint
-                      try {
-                        await localEntryService.setSaveDirectoryPreference(parent.name || 'MeOS Event Entries');
-                        setWorkingDirectory(parent.name || null);
-                      } catch {}
-                    }
-                  });
-                }
-              }
-            } catch (err) {
-              console.warn('Failed to infer directory from dropped file:', err);
-            }
-          }}
-        >
-          <p className="ant-upload-drag-icon">
-            <InboxOutlined />
-          </p>
-          <p className="ant-upload-text">
-            Click or drag CSV file to upload
-          </p>
-          <p className="ant-upload-hint">
-            Supports CSV files from Jotform and EventReg (OE12 format)
-          </p>
-        </Dragger>
-        
-        {/* Optional: Use native file picker to auto-set directory (Chrome/Edge) */}
-        {'showOpenFilePicker' in window && (
-          <div style={{ marginTop: 12 }}>
-            <Space>
-              <Button 
-                onClick={async () => {
-                  try {
-                    // @ts-ignore - File System Access API
-                    const [fileHandle] = await (window as any).showOpenFilePicker({
-                      multiple: false,
-                      types: [{
-                        description: 'CSV files',
-                        accept: { 'text/csv': ['.csv'] }
-                      }]
-                    });
-                    if (fileHandle) {
-                      const file = await fileHandle.getFile();
-                      await localEntryService.setWorkingDirectoryFromFileHandle(fileHandle);
-                      const dirName = localEntryService.getWorkingDirectoryName();
-                      if (dirName) setWorkingDirectory(dirName);
-                      // Reuse existing upload flow to parse
-                      handleFileUpload(file);
-                    }
-                  } catch (err) {
-                    // User cancelled or API not available
-                  }
-                }}
-              >
-                Open CSV (native picker)
-              </Button>
-              {workingDirectory && (
-                <Text type="secondary" style={{ fontSize: '12px' }}>
-                  Directory: <Text code>{workingDirectory}</Text>
-                </Text>
-              )}
+      <Card title="1. Select CSV File" style={{ marginBottom: '24px' }}>
+        {'showOpenFilePicker' in window ? (
+          <div>
+            <Space direction="vertical" size="large" style={{ width: '100%' }}>
+              <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                <Button 
+                  type="primary"
+                  size="large"
+                  icon={<UploadOutlined />}
+                  onClick={handleOpenCSVFile}
+                  disabled={importStatus.isImporting}
+                  style={{ height: '60px', fontSize: '16px' }}
+                >
+                  Open CSV File
+                </Button>
+                <div style={{ marginTop: '16px' }}>
+                  <Text type="secondary">Supports CSV files from Jotform and EventReg (OE12 format)</Text>
+                </div>
+                {lastUsedDirectory && (
+                  <div style={{ marginTop: '12px' }}>
+                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                      Last used directory: <Text code>{lastUsedDirectory}</Text>
+                    </Text>
+                  </div>
+                )}
+              </div>
             </Space>
           </div>
+        ) : (
+          <Alert
+            type="warning"
+            message="File System Access API Not Available"
+            description="Your browser doesn't support the native file picker. Please use a modern browser like Chrome or Edge."
+            showIcon
+          />
         )}
         
         {selectedFile && (

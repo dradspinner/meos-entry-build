@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import type { ServerResponse } from 'http'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -16,15 +17,16 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         ws: false,
-        configure: (proxy, options) => {
-          proxy.on('error', (err, req, res) => {
-            console.log('Proxy error:', err.message);
-            if (res && !res.headersSent) {
-              res.writeHead(503, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ error: 'MeOS service unavailable' }));
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, res) => {
+            console.error('Proxy error:', err.message);
+            const response = res as ServerResponse;
+            if (response && typeof response.writeHead === 'function' && !response.headersSent) {
+              response.writeHead(503, { 'Content-Type': 'application/json' });
+              response.end(JSON.stringify({ error: 'MeOS service unavailable. Please ensure MeOS is running on port 2009.' }));
             }
           });
-          proxy.on('proxyReq', (proxyReq, req, res) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
             console.log('Proxying request:', req.method, req.url);
           });
         }

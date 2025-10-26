@@ -27,14 +27,9 @@ import {
 import {
   UserOutlined,
   IdcardOutlined,
-  SearchOutlined,
   LoginOutlined,
   PlusOutlined,
-  CheckCircleOutlined,
-  WarningOutlined,
-  DatabaseOutlined,
-  UsbOutlined,
-  ReloadOutlined
+  UsbOutlined
 } from '@ant-design/icons';
 import { sportIdentService, type SICard, type SICardReadEvent } from '../services/sportIdentService';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
@@ -112,7 +107,7 @@ const EventDayCheckIn: React.FC<EventDayCheckInProps> = ({
 
   const loadClasses = async () => {
     try {
-      const classData = await meosClassService.getAllClasses();
+      const classData = await meosClassService.getClasses();
       setClasses(classData);
     } catch (error) {
       console.error('Failed to load classes:', error);

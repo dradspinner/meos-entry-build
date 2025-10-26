@@ -16,6 +16,7 @@ export interface LocalEntry {
   sex: string;
   nationality: string;
   phone?: string;
+  email?: string;
   
   // Competition info
   classId: string;
@@ -456,26 +457,65 @@ class LocalEntryService {
    * Set working directory where files should be saved
    */
   async setWorkingDirectory(): Promise<boolean> {
-    if (!('showDirectoryPicker' in window)) {
-      // Firefox fallback - let user manually specify directory name
-      return this.setWorkingDirectoryFallback();
-    }
-
-    try {
-      const dirHandle = await (window as any).showDirectoryPicker({
-        mode: 'readwrite',
-        startIn: 'documents'
-      });
-      
-      this.workingDirectoryHandle = dirHandle;
-      console.log(`[LocalStorage] Set working directory: ${dirHandle.name}`);
-      return true;
-    } catch (error) {
-      if (error && typeof error === 'object' && 'name' in error && error.name !== 'AbortError') {
-        console.error('Failed to set working directory:', error);
+    // Check if we're in Electron - use its dialog which gives us the full path
+    const isElectron = typeof (window as any).electronAPI !== 'undefined';
+    
+    if (isElectron) {
+      try {
+        const result = await (window as any).electronAPI.showOpenDialog({
+          properties: ['openDirectory', 'createDirectory'],
+          title: 'Select Working Directory for Event Files',
+          buttonLabel: 'Select Folder'
+        });
+        
+        if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+          console.log('[LocalStorage] User cancelled directory selection');
+          return false;
+        }
+        
+        const dirPath = result.filePaths[0];
+        const dirName = dirPath.split(/[\\\/]/).pop() || dirPath;
+        
+        // Store the full path in localStorage for later retrieval
+        localStorage.setItem('meos_working_directory_path', dirPath);
+        this.setSaveDirectoryPreference(dirName);
+        
+        console.log(`[LocalStorage] Set working directory (Electron): ${dirPath}`);
+        return true;
+      } catch (error) {
+        console.error('[LocalStorage] Electron dialog failed:', error);
+        return false;
       }
-      return false;
     }
+    
+    // Browser fallback: try File System Access API
+    if ('showDirectoryPicker' in window) {
+      try {
+        const dirHandle = await (window as any).showDirectoryPicker({
+          mode: 'readwrite',
+          startIn: 'documents'
+        });
+        
+        this.workingDirectoryHandle = dirHandle;
+        
+        // Note: File System Access API doesn't give us the full path
+        // Store what we can and show a warning to the user
+        this.setSaveDirectoryPreference(dirHandle.name);
+        console.log(`[LocalStorage] Set working directory handle: ${dirHandle.name}`);
+        console.warn('[LocalStorage] Full path not available with File System Access API. Some features may require manual path entry.');
+        
+        // Return true but the path won't be available
+        return true;
+      } catch (error) {
+        if (error && typeof error === 'object' && 'name' in error && error.name !== 'AbortError') {
+          console.error('Failed to set working directory:', error);
+        }
+        return false;
+      }
+    }
+    
+    // Firefox fallback - let user manually specify directory name
+    return this.setWorkingDirectoryFallback();
   }
 
   /**

@@ -1,7 +1,10 @@
-import React from 'react';
-import { Layout, Button, message } from 'antd';
-import { TrophyOutlined } from '@ant-design/icons';
+import React, { useState } from 'react';
+import { Layout, Button, Modal, Typography, Space, Input, Alert } from 'antd';
+import { TrophyOutlined, CopyOutlined, CheckCircleOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import logoImage from '../assets/dvoa_logo.png';
+import { localEntryService } from '../services/localEntryService';
+
+const { Paragraph, Text, Title } = Typography;
 
 const { Header: AntHeader } = Layout;
 
@@ -13,29 +16,55 @@ interface HeaderProps {
 let liveResultsWindow: Window | null = null;
 
 const Header: React.FC<HeaderProps> = ({ title = 'MeOS Event Management System' }) => {
+  const [showPathModal, setShowPathModal] = useState(false);
 
-  const handleOpenLiveResults = () => {
-    // Open live results in a new window/tab
-    // Note: The Python server is automatically started by the Electron app
+  const handleOpenLiveResults = async () => {
+    // Check if MeOS API is running
+    try {
+      const response = await fetch('http://localhost:2009/meos?get=competition', {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000)
+      });
+      
+      if (response.ok) {
+        // API is running, open live results directly
+        openLiveResultsWindow();
+      } else {
+        // API returned error
+        setShowPathModal(true);
+      }
+    } catch (error) {
+      // API is not running
+      setShowPathModal(true);
+    }
+  };
+  
+  
+  const openLiveResultsWindow = () => {
+    // Open live results in a new window (uses live_results_api.js)
     const liveResultsUrl = window.location.origin + '/live_results.html';
     
     // Check if window is still open
     if (liveResultsWindow && !liveResultsWindow.closed) {
-      // Window already exists - just focus it, DON'T reopen
+      // Window already exists - just focus it
       try {
         liveResultsWindow.focus();
       } catch (e) {
-        // Window may have been closed, try opening again
         liveResultsWindow = null;
       }
       return;
     }
     
-    // Open new window only if not already open
-    // Using named window without size parameters to preserve position
+    // Open new window
     liveResultsWindow = window.open(liveResultsUrl, 'live-results');
-    message.info('Opening Live Results Display...');
+    console.log('🏆 Opening Live Results Display...');
   };
+  
+  const handleContinueToLiveResults = () => {
+    setShowPathModal(false);
+    openLiveResultsWindow();
+  };
+  
 
 
   return (
@@ -84,6 +113,47 @@ const Header: React.FC<HeaderProps> = ({ title = 'MeOS Event Management System' 
           <div>Event Management System</div>
         </div>
       </div>
+      
+      {/* MeOS API Check Modal */}
+      <Modal
+        title={<><TrophyOutlined style={{ marginRight: 8, color: '#ff4d4f' }} />MeOS API Not Running</>}
+        open={showPathModal}
+        onOk={handleContinueToLiveResults}
+        onCancel={() => setShowPathModal(false)}
+        okText="Try Again"
+        cancelText="Cancel"
+        width={600}
+      >
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <Alert
+            message="Cannot Connect to MeOS API"
+            description="The MeOS API server is not running on localhost:2009. Live Results needs this API to fetch real-time data."
+            type="error"
+            showIcon
+          />
+          
+          <div>
+            <Title level={5}>How to Start MeOS API Server</Title>
+            <Paragraph>
+              To use Live Results, you need to start the MeOS API server:
+            </Paragraph>
+            <ol style={{ paddingLeft: 20 }}>
+              <li>Open <strong>MeOS</strong></li>
+              <li>Load your event</li>
+              <li>Go to <strong>Tools → Web Server</strong> or <strong>Settings → API</strong></li>
+              <li>Start the API server on port <Text code>2009</Text></li>
+              <li>Click <strong>"Try Again"</strong> below to reconnect</li>
+            </ol>
+          </div>
+          
+          <Alert
+            message="Note"
+            description="The API server must remain running while you use Live Results."
+            type="info"
+            showIcon
+          />
+        </Space>
+      </Modal>
     </AntHeader>
   );
 };

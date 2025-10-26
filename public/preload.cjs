@@ -33,6 +33,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   isElectron: true,
   
+  // Clipboard operations
+  writeClipboard: (text) => ipcRenderer.invoke('write-clipboard', text),
+  readClipboard: () => ipcRenderer.invoke('read-clipboard'),
+  
+  // Shell operations
+  openExternal: (path) => ipcRenderer.invoke('open-external', path),
+  
   // Serial debugging
   debugSerial: () => {
     console.log('[Preload] Serial API check:', {
@@ -49,6 +56,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       });
     }
   }
+});
+
+// Also expose as 'electron' for compatibility
+contextBridge.exposeInMainWorld('electron', {
+  saveFile: (filePath, content) => ipcRenderer.invoke('save-file', filePath, content),
+  openExternal: (path) => ipcRenderer.invoke('open-external', path),
 });
 
 // Log when preload is ready

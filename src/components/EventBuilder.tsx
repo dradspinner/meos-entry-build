@@ -278,7 +278,7 @@ function EventBuilder({ onBack }: EventBuilderProps) {
       xml += `<Updated>${timestamp}</Updated>\n`;
       xml += `<Name>${course.name}</Name>\n`;
       xml += `<Length>${course.length}</Length>\n`;
-      xml += `<Controls>${course.controls.join(';')}</Controls>\n`;
+      xml += `<Controls>${course.controls.join(';')};</Controls>\n`;
       xml += `<oData>\n`;
       xml += `<StartName>Start</StartName>\n`;
       if (course.climb) xml += `<Climb>${course.climb}</Climb>\n`;
@@ -293,7 +293,7 @@ function EventBuilder({ onBack }: EventBuilderProps) {
       xml += `<Id>${cls.id}</Id>\n`;
       xml += `<Updated>${timestamp}</Updated>\n`;
       xml += `<Name>${cls.name}</Name>\n`;
-      xml += `<CourseId>${cls.courseId}</CourseId>\n`;
+      if (cls.courseId) xml += `<Course>${cls.courseId}</Course>\n`;
       xml += `<oData>\n`;
       xml += `<Fee>${cls.fee || 0}</Fee>\n`;
       xml += `<AllowQuickEntry>1</AllowQuickEntry>\n`;
@@ -339,7 +339,7 @@ function EventBuilder({ onBack }: EventBuilderProps) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${eventData.name.replace(/[^a-zA-Z0-9]/g, '_')}_event.xml`;
+    link.download = `${eventData.name.replace(/[^a-zA-Z0-9]/g, '_')}_event.meosxml`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

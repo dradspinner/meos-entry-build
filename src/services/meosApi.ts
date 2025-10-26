@@ -504,6 +504,105 @@ export class MeosApiClient {
   }
 
   /**
+   * Get all classes from MeOS (not just entry classes)
+   * Returns complete class list with course information
+   * Format: <cls id="X" ord="Y" radio="..." crs="courseId" len="length">Class Name</cls>
+   */
+  async getAllClasses(): Promise<any[]> {
+    console.log('🔵 [MeosAPI] GET /meos?get=class');
+    
+    const response = await this.makeRequest<any>({
+      get: 'class',
+    });
+
+    if (!response.success) {
+      console.error('❌ [MeosAPI] Classes lookup failed:', response.error);
+      return [];
+    }
+
+    console.log('📝 [MeosAPI] Raw class response:', response.data);
+
+    const classes = response.data?.cls;
+    if (!classes) {
+      console.warn('⚠️ [MeosAPI] No classes found in class response');
+      return [];
+    }
+
+    const classArray = Array.isArray(classes) ? classes : [classes];
+    const parsed = classArray.map((cls: any) => ({
+      id: parseInt(cls['@attributes']?.id || '0'),
+      name: cls['#text'] || '',
+      ord: parseInt(cls['@attributes']?.ord || '0'),
+      courseId: cls['@attributes']?.crs,
+      courseLength: parseInt(cls['@attributes']?.len || '0'),
+      radioControls: cls['@attributes']?.radio?.split(';').map((leg: string) => 
+        leg.split(',').map((c: string) => parseInt(c))
+      ) || [],
+    })).sort((a: any, b: any) => a.ord - b.ord); // Sort by ord attribute
+
+    console.log('✅ [MeosAPI] Parsed classes:', parsed.map(c => `${c.name} (id=${c.id}, ord=${c.ord}, len=${c.courseLength}m)`));
+    
+    return parsed;
+  }
+
+  /**
+   * Get all competitors from MeOS
+   * Optional: filter by class ID(s)
+   */
+  async getAllCompetitors(classIds?: number[]): Promise<any[]> {
+    const params: any = { get: 'competitor' };
+    
+    if (classIds && classIds.length > 0) {
+      params.class = classIds.join(',');
+    }
+
+    console.log('🔵 [MeosAPI] GET /meos?get=competitor with params:', params);
+    
+    const response = await this.makeRequest<any>(params);
+
+    if (!response.success) {
+      console.error('❌ [MeosAPI] Competitors lookup failed:', response.error);
+      return [];
+    }
+
+    console.log('📝 [MeosAPI] Raw competitors response (first 500 chars):', JSON.stringify(response.data).substring(0, 500));
+
+    const competitors = response.data?.cmp;
+    if (!competitors) {
+      console.warn('⚠️ [MeosAPI] No competitors found in response');
+      return [];
+    }
+
+    const competitorArray = Array.isArray(competitors) ? competitors : [competitors];
+
+    const parsed = competitorArray.map((cmp: any) => {
+      const base = cmp.base || {};
+      const input = cmp.input || {};
+      
+      return {
+        id: parseInt(cmp['@attributes']?.id || '0'),
+        cardNumber: cmp['@attributes']?.card,
+        name: base['#text'] || '',
+        clubId: parseInt(base['@attributes']?.org || '0'),
+        classId: parseInt(base['@attributes']?.cls || '0'),
+        status: parseInt(base['@attributes']?.stat || '0'),
+        startTime: parseInt(base['@attributes']?.st || '0') / 10, // Convert to seconds
+        runningTime: parseInt(base['@attributes']?.rt || '0') / 10, // Convert to seconds
+        nationality: base['@attributes']?.nat,
+        inputTime: parseInt(input['@attributes']?.it || '0') / 10, // Previous stages
+        inputStatus: parseInt(input['@attributes']?.tstat || '0'),
+      };
+    });
+
+    console.log('✅ [MeosAPI] Parsed competitors:', {
+      count: parsed.length,
+      sample: parsed.slice(0, 3).map(c => `${c.name} (class=${c.classId}, card=${c.cardNumber})`)
+    });
+    
+    return parsed;
+  }
+
+  /**
    * Get competition information
    */
   async getCompetition(): Promise<Competition | null> {
@@ -726,6 +825,238 @@ export class MeosApiClient {
         paid: '1'
       }
     ];
+  }
+
+  /**
+   * Get results from MeOS
+   * Supports filtering by class, control points, legs, and result types
+   */
+  async getResults(options: {
+    classIds?: number[];
+    preliminary?: boolean;
+    fromControl?: number;
+    toControl?: number;
+    leg?: number;
+    limit?: number;
+    type?: 'ClassIndividual' | 'CourseIndividual' | 'GlobalIndividual' | 'LegIndividual' | 'ClassTeam' | 'GlobalTeam';
+  } = {}): Promise<any> {
+    const params: any = { get: 'result' };
+    
+    if (options.classIds && options.classIds.length > 0) {
+      params.class = options.classIds.join(',');
+    }
+    if (options.preliminary !== undefined) {
+      params.preliminary = options.preliminary.toString();
+    }
+    if (options.fromControl) {
+      params.from = options.fromControl.toString();
+    }
+    if (options.toControl) {
+      params.to = options.toControl.toString();
+    }
+    if (options.leg) {
+      params.leg = options.leg.toString();
+    }
+    if (options.limit) {
+      params.limit = options.limit.toString();
+    }
+    if (options.type) {
+      params.type = options.type;
+    }
+
+    console.log('🔵 [MeosAPI] GET /meos?get=result with params:', params);
+    
+    const response = await this.makeRequest<any>(params);
+
+    if (!response.success) {
+      console.error('❌ [MeosAPI] Results lookup failed:', response.error);
+      return null;
+    }
+
+    console.log('✅ [MeosAPI] Results response:', {
+      location: response.data?.results?.['@attributes']?.location,
+      personCount: Array.isArray(response.data?.results?.person) ? response.data.results.person.length : (response.data?.results?.person ? 1 : 0),
+      teamCount: Array.isArray(response.data?.results?.team) ? response.data.results.team.length : (response.data?.results?.team ? 1 : 0),
+      rawData: response.data
+    });
+
+    return response.data;
+  }
+
+  /**
+   * Lookup individual competitor with splits and analysis
+   * Can search by id, card number, bib number, or name+club
+   */
+  async lookupCompetitorById(params: {
+    id?: number;
+    card?: number;
+    bib?: number;
+    name?: string;
+    club?: string;
+  }): Promise<any> {
+    const queryParams: any = { lookup: 'competitor' };
+    
+    if (params.id) queryParams.id = params.id.toString();
+    if (params.card) queryParams.card = params.card.toString();
+    if (params.bib) queryParams.bib = params.bib.toString();
+    if (params.name) queryParams.name = params.name;
+    if (params.club) queryParams.club = params.club;
+
+    console.log('🔵 [MeosAPI] GET /meos?lookup=competitor with params:', queryParams);
+    
+    const response = await this.makeRequest<any>(queryParams);
+
+    if (!response.success) {
+      console.error('❌ [MeosAPI] Competitor lookup failed:', response.error);
+      return null;
+    }
+
+    const competitor = response.data?.Competitors?.Competitor || response.data?.Competitor;
+    
+    if (!competitor) {
+      console.warn('⚠️ [MeosAPI] No competitor found in response');
+      return null;
+    }
+
+    // Parse competitor data with splits
+    const parsed = this.parseCompetitorData(competitor);
+    
+    console.log('✅ [MeosAPI] Competitor lookup response:', {
+      name: parsed.name,
+      class: parsed.className,
+      status: parsed.status,
+      time: parsed.runningTime,
+      splitCount: parsed.splits?.length || 0,
+      hasAnalysis: parsed.splits?.some((s: any) => s.analysis) || false
+    });
+
+    return parsed;
+  }
+
+  /**
+   * Parse competitor data from lookup response
+   */
+  private parseCompetitorData(competitor: any): any {
+    const getName = (elem: any) => elem?.['#text'] || elem || '';
+    const getAttr = (elem: any, attr: string) => elem?.['@attributes']?.[attr];
+    
+    // Parse splits with analysis
+    const splits = [];
+    const splitsData = competitor.Splits?.Control;
+    
+    if (splitsData) {
+      const splitArray = Array.isArray(splitsData) ? splitsData : [splitsData];
+      
+      for (const control of splitArray) {
+        const analysis = control.Analysis;
+        
+        splits.push({
+          number: parseInt(getAttr(control, 'number') || '0'),
+          name: getName(control.Name),
+          time: getName(control.Time),
+          timeMs: this.parseTimeStringToMs(getName(control.Time)),
+          analysis: analysis ? {
+            // Analysis attributes are directly on the Analysis element, not nested
+            lost: getAttr(analysis, 'lost') || '',
+            behind: getAttr(analysis, 'behind') || '',
+            mistake: getAttr(analysis, 'mistake') || '',
+            leg: parseInt(getAttr(analysis, 'leg') || '0'),
+            total: parseInt(getAttr(analysis, 'total') || '0')
+          } : null
+        });
+      }
+    }
+
+    return {
+      id: parseInt(getAttr(competitor, 'id') || '0'),
+      name: getName(competitor.Name),
+      externalId: getName(competitor.ExternalId),
+      club: getName(competitor.Club),
+      clubId: getAttr(competitor.Club, 'id'),
+      className: getName(competitor.Class),
+      classId: getAttr(competitor.Class, 'id'),
+      cardNumber: getName(competitor.Card),
+      status: getName(competitor.Status),
+      statusCode: getAttr(competitor.Status, 'code'),
+      startTime: getName(competitor.Start),
+      finishTime: getName(competitor.Finish),
+      runningTime: getName(competitor.RunningTime),
+      runningTimeMs: this.parseTimeStringToMs(getName(competitor.RunningTime)),
+      place: parseInt(getName(competitor.Place) || '0'),
+      timeAfter: getName(competitor.TimeAfter),
+      timeAfterMs: this.parseTimeStringToMs(getName(competitor.TimeAfter)),
+      team: getName(competitor.Team),
+      teamId: getAttr(competitor.Team, 'id'),
+      leg: parseInt(getName(competitor.Leg) || '0'),
+      splits: splits
+    };
+  }
+
+  /**
+   * Helper to parse MeOS time strings (MM:SS) to milliseconds
+   */
+  private parseTimeStringToMs(timeStr: string): number {
+    if (!timeStr || timeStr === '') return 0;
+    
+    const parts = timeStr.split(':');
+    if (parts.length >= 2) {
+      const minutes = parseInt(parts[0]) || 0;
+      const seconds = parseInt(parts[1]) || 0;
+      return (minutes * 60 + seconds) * 1000;
+    }
+    
+    return 0;
+  }
+
+
+  /**
+   * Get MeOS status including version and current event file name
+   */
+  async getStatus(): Promise<any> {
+    console.log('🔵 [MeosAPI] GET /meos?get=status');
+    
+    const response = await this.makeRequest<any>({
+      get: 'status',
+    });
+
+    if (!response.success) {
+      console.error('❌ [MeosAPI] Status lookup failed:', response.error);
+      return null;
+    }
+
+    const status = response.data?.status || {};
+    const attrs = status['@attributes'] || {};
+    
+    const result = {
+      version: attrs.version,
+      eventNameId: attrs.eventNameId,
+      onDatabase: attrs.onDatabase === '1',
+    };
+
+    console.log('✅ [MeosAPI] Status:', result);
+    
+    return result;
+  }
+
+  /**
+   * Get the file path to the current MeOS event database
+   * Returns null if event is not saved to database
+   */
+  async getMeosEventFilePath(): Promise<string | null> {
+    const status = await this.getStatus();
+    
+    if (!status || !status.eventNameId || !status.onDatabase) {
+      console.warn('⚠️ [MeosAPI] Event not saved to database or status unavailable');
+      return null;
+    }
+
+    // MeOS saves files in AppData\Roaming\Meos
+    const appDataPath = process.env.APPDATA || process.env.HOME + '/AppData/Roaming';
+    const meosPath = `${appDataPath}\\Meos\\${status.eventNameId}.meos`;
+    
+    console.log('📁 [MeosAPI] Event file path:', meosPath);
+    
+    return meosPath;
   }
 
   /**

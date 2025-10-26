@@ -70,16 +70,20 @@ Event Day Dashboard → live_data.json → Live Results Page
 ### Configuration
 
 #### MeOS Setup
-1. **Enable Auto-Export**:
-   - Go to MeOS settings/preferences
-   - Enable auto-export of results
-   - Export to: `C:\Users\drads\OneDrive\DVOA\DVOA MeOS Advanced\splits test.xml`
-   - Export format: IOF 3.0 XML with splits
-   - Export interval: 10-30 seconds
+1. **Get Export Path**:
+   - Click "Live Results" button in the Event Day Dashboard header
+   - A modal will display the full export path (e.g., `C:\Users\YourName\Documents\EventName\MeOS Live Export.xml`)
+   - Copy this path to your clipboard
 
-2. **Update Python Server Path** (if needed):
-   - Edit `public/server.py`, line 17
-   - Update `self.splits_xml_path` to your MeOS export location
+2. **Enable Auto-Export in MeOS**:
+   - Go to MeOS settings → Auto Export
+   - Paste the export path from step 1
+   - Set filename to: `MeOS Live Export.xml`
+   - Export format: IOF 3.0 XML with splits
+   - Export interval: 10-30 seconds (recommended)
+   - Enable auto-export
+
+**Note**: The export path is automatically set to your event's working directory. The same folder where you save event data files (.json, etc.) will be used for the MeOS XML export.
 
 #### Live Results Configuration
 - **Refresh interval**: Dropdown in header (10s-60s)
@@ -88,10 +92,14 @@ Event Day Dashboard → live_data.json → Live Results Page
 
 ### API Endpoints
 
-#### Python Server (port 8000)
+#### Python Server (port 8001)
 - `GET /load-splits-xml`: Returns MeOS XML splits export
 - `GET /live_data.json`: Returns checked-in runners from Electron
 - `GET /[filename]`: Serves static files from public directory
+
+**Server Configuration**:
+- Default XML file: `MeOS Live Export.xml` (in current working directory)
+- Custom path: `python server.py "C:\path\to\custom.xml"`
 
 #### MeOS REST API (port 2009)
 - `GET /meos?get=class`: Returns class list
@@ -125,7 +133,7 @@ Event Day Dashboard → live_data.json → Live Results Page
 ### Troubleshooting
 
 #### Python Server Not Starting
-**Symptoms**: Console errors about connection refused to port 8000
+**Symptoms**: Console errors about connection refused to port 8001
 
 **Solutions**:
 1. Check Electron console for Python server logs
@@ -135,16 +143,17 @@ Event Day Dashboard → live_data.json → Live Results Page
    cd public
    python server.py
    ```
-4. Check for port conflicts (another app using port 8000)
+4. Check for port conflicts (another app using port 8001)
 
 #### No Results Showing
 **Symptoms**: "Waiting for Check-In" message or empty results
 
 **Solutions**:
-1. Verify MeOS is exporting to the correct location
-2. Check Python server console for file read errors
-3. Check browser console for XML parsing errors
-4. Verify at least one runner has checked in or finished
+1. Verify MeOS is exporting to the correct location (see path in Live Results Setup modal)
+2. Check Python server console - it will show if the XML file was found or not
+3. Ensure the XML filename is exactly: `MeOS Live Export.xml`
+4. Check browser console for XML parsing errors
+5. Verify at least one runner has checked in or finished
 
 #### XML Parsing Errors
 **Symptoms**: Console errors about XML parsing

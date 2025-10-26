@@ -11,10 +11,11 @@ import {
   Row,
   Col,
   Alert,
-  message,
+  App,
   Divider,
   Tag,
-  AutoComplete
+  AutoComplete,
+  Checkbox
 } from 'antd';
 import {
   UserAddOutlined,
@@ -58,6 +59,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
   cardNumber,
   onRegistrationComplete
 }) => {
+  const { message } = App.useApp();
   const [form] = Form.useForm<RegistrationFormData>();
   const [loading, setLoading] = useState(false);
   const [foundRunner, setFoundRunner] = useState<LocalRunner | null>(null);
@@ -199,16 +201,19 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
   const handleRunnerSelect = (runner: LocalRunner) => {
     setFoundRunner(runner);
     // Auto-populate all form fields when a runner is selected
-    form.setFieldsValue({
-      firstName: runner.name.first,
-      lastName: runner.name.last,
-      club: runner.club,
-      cardNumber: runner.cardNumber?.toString() || '',
-      birthYear: runner.birthYear?.toString() || '',
-      sex: runner.sex,
-      phone: runner.phone || '',
-      nationality: runner.nationality || ''
-    });
+    // Use setTimeout to ensure the form field is cleared first before setting new value
+    setTimeout(() => {
+      form.setFieldsValue({
+        firstName: runner.name.first,
+        lastName: runner.name.last,
+        club: runner.club,
+        cardNumber: runner.cardNumber?.toString() || '',
+        birthYear: runner.birthYear?.toString() || '',
+        sex: runner.sex,
+        phone: runner.phone || '',
+        nationality: runner.nationality || ''
+      });
+    }, 0);
     message.success(`Selected runner: ${runner.name.first} ${runner.name.last}`);
     // Record usage for priority in future searches
     localRunnerService.recordUsage(runner.id);
@@ -238,7 +243,10 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
       const natNum = parseInt(values.nationality || '0', 10);
       const normalizedSex = (!natNum || natNum <= 1) ? values.sex : undefined;
       const pendingEntry = localEntryService.addEntry({
-        name: { first: values.firstName.trim(), last: values.lastName.trim() },
+        name: { 
+          first: values.firstName ? values.firstName.trim() : '', 
+          last: values.lastName.trim() 
+        },
         club: values.club.trim(),
         className: values.className,
         classId: values.classId,
@@ -247,27 +255,32 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         sex: normalizedSex,
         phone: values.phone,
         nationality: values.nationality,
-        isHiredCard: false,
+        isHiredCard: values.isHiredCard || false,
         fee: classes.find(c => c.id === values.classId)?.fee || 0,
         importedFrom: 'manual'
       });
       const addedEntry = localEntryService.checkInEntry(pendingEntry.id, values.cardNumber);
 
       if (addedEntry) {
-        // Update runner database for future lookups
-        const runnerData = {
-          name: {
-            first: values.firstName.trim(),
-            last: values.lastName.trim()
-          },
-          club: values.club.trim(),
-          cardNumber: parseInt(values.cardNumber),
-          birthYear: values.birthYear ? parseInt(values.birthYear) : undefined,
-          sex: values.sex,
-          phone: values.phone,
-          nationality: values.nationality
-        };
-        localRunnerService.addRunner(runnerData);
+        // Update runner database for future lookups (only individuals, never groups)
+        const natNum = parseInt(values.nationality || '0', 10);
+        const isGroup = natNum > 1;
+        
+        if (!isGroup && values.firstName) {
+          const runnerData = {
+            name: {
+              first: values.firstName.trim(),
+              last: values.lastName.trim()
+            },
+            club: values.club.trim(),
+            cardNumber: parseInt(values.cardNumber),
+            birthYear: values.birthYear ? parseInt(values.birthYear) : undefined,
+            sex: values.sex,
+            phone: values.phone,
+            nationality: values.nationality
+          };
+          localRunnerService.addRunner(runnerData);
+        }
 
         // Try to submit to MeOS immediately
         try {
@@ -338,18 +351,25 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
 
   const handleSaveOnly = async () => {
     try {
+      console.log('[SameDayRegistration] Save button clicked - starting validation...');
+      
       // For save-only, validate only required fields (name, lastName, club)
       const values = await form.validateFields(['firstName', 'lastName', 'club']);
+      console.log('[SameDayRegistration] Validation passed:', values);
       
       // Get all form values (including optional ones)
       const allValues = form.getFieldsValue();
+      console.log('[SameDayRegistration] All form values:', allValues);
       
       // Allow empty card number and class for save-only
       const natNum = parseInt(allValues.nationality || '0', 10);
       const normalizedSex = (!natNum || natNum <= 1) ? allValues.sex : undefined;
       
       const saved = localEntryService.addEntry({
-        name: { first: allValues.firstName.trim(), last: allValues.lastName.trim() },
+        name: { 
+          first: allValues.firstName ? allValues.firstName.trim() : '', 
+          last: allValues.lastName.trim() 
+        },
         club: allValues.club.trim(),
         className: allValues.classId ? (classes.find(c => c.id === allValues.classId)?.name || allValues.className) : 'TBD',
         classId: allValues.classId || 'TBD',
@@ -358,21 +378,32 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         sex: normalizedSex,
         phone: allValues.phone,
         nationality: allValues.nationality,
-        isHiredCard: false,
+        isHiredCard: allValues.isHiredCard || false,
         fee: allValues.classId ? (classes.find(c => c.id === allValues.classId)?.fee || 0) : 0,
         importedFrom: 'manual'
       });
       
+      console.log('[SameDayRegistration] Entry saved:', saved);
+      
       const classText = allValues.classId ? ` in class ${classes.find(c => c.id === allValues.classId)?.name}` : ' (class to be determined)';
       message.success(`Saved ${allValues.firstName} ${allValues.lastName}${classText} (not checked-in)`);
       
+      console.log('[SameDayRegistration] Calling onRegistrationComplete...');
       if (onRegistrationComplete) {
         onRegistrationComplete(saved as any, allValues.cardNumber || '0');
       }
+      
+      console.log('[SameDayRegistration] Closing modal...');
       handleClose();
     } catch (e) {
-      // validation errors are shown by antd for the specific fields we're validating
-      // Validation errors are shown by form UI
+      console.error('[SameDayRegistration] Save failed:', e);
+      // If validation errors, they're shown in form UI by antd
+      // But log other errors
+      if (e && typeof e === 'object' && 'errorFields' in e) {
+        console.log('[SameDayRegistration] Validation errors:', (e as any).errorFields);
+      } else {
+        message.error('Failed to save entry. Please check the form and try again.');
+      }
     }
   };
 
@@ -382,7 +413,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
     onClose();
   };
 
-  const handleClassChange = (value: string, option: any) => {
+  const handleClassChange = (value: string) => {
     const selectedClass = classes.find(c => c.id === value);
     if (selectedClass) {
       form.setFieldValue('className', selectedClass.name);
@@ -490,25 +521,23 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
             >
               <AutoComplete
                 options={firstNameOptions.map((option, index) => ({
-                  value: option.value,
-                  key: `${option.runner.id}-${index}`, // Add unique key
-                  label: (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span><strong>{option.runner.name.first}</strong> {option.runner.name.last}</span>
-                      <span style={{ color: '#666', fontSize: '12px' }}>{option.runner.club}</span>
-                    </div>
-                  ),
-                  runner: option.runner // Pass runner directly
+                  value: `${option.runner.name.first} ${option.runner.name.last} (${option.runner.club})`,
+                  key: option.runner.id,
+                  runnerIndex: index
                 }))}
                 onSearch={handleFirstNameSearch}
-                onSelect={(value, option) => {
-                  // Use the runner from the selected option directly
-                  if (option && typeof option === 'object' && 'runner' in option) {
-                    handleRunnerSelect(option.runner as LocalRunner);
+                onSelect={(value) => {
+                  // Find the runner based on the selected display value
+                  const selectedOption = firstNameOptions.find(opt => 
+                    `${opt.runner.name.first} ${opt.runner.name.last} (${opt.runner.club})` === value
+                  );
+                  if (selectedOption) {
+                    handleRunnerSelect(selectedOption.runner);
                   }
                 }}
                 onChange={(value) => {
-                  if (typeof value === 'string' && value !== foundRunner?.name.first) {
+                  // If value doesn't contain parentheses (club), user is typing manually
+                  if (typeof value === 'string' && !value.includes('(')) {
                     clearFoundRunner();
                   }
                 }}
@@ -525,25 +554,23 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
             >
               <AutoComplete
                 options={lastNameOptions.map((option, index) => ({
-                  value: option.value,
-                  key: `${option.runner.id}-${index}`, // Add unique key
-                  label: (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>{option.runner.name.first} <strong>{option.runner.name.last}</strong></span>
-                      <span style={{ color: '#666', fontSize: '12px' }}>{option.runner.club}</span>
-                    </div>
-                  ),
-                  runner: option.runner // Pass runner directly
+                  value: `${option.runner.name.first} ${option.runner.name.last} (${option.runner.club})`,
+                  key: option.runner.id,
+                  runnerIndex: index
                 }))}
                 onSearch={handleLastNameSearch}
-                onSelect={(value, option) => {
-                  // Use the runner from the selected option directly
-                  if (option && typeof option === 'object' && 'runner' in option) {
-                    handleRunnerSelect(option.runner as LocalRunner);
+                onSelect={(value) => {
+                  // Find the runner based on the selected display value
+                  const selectedOption = lastNameOptions.find(opt => 
+                    `${opt.runner.name.first} ${opt.runner.name.last} (${opt.runner.club})` === value
+                  );
+                  if (selectedOption) {
+                    handleRunnerSelect(selectedOption.runner);
                   }
                 }}
                 onChange={(value) => {
-                  if (typeof value === 'string' && value !== foundRunner?.name.last) {
+                  // If value doesn't contain parentheses (club), user is typing manually
+                  if (typeof value === 'string' && !value.includes('(')) {
                     clearFoundRunner();
                   }
                 }}
@@ -572,33 +599,42 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
             >
               <AutoComplete
                 options={cardNumberOptions.map((option, index) => ({
-                  value: option.value,
-                  key: `${option.runner.id}-${index}`, // Add unique key
-                  label: (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Card <strong>{option.value}</strong></span>
-                      <span style={{ color: '#666', fontSize: '12px' }}>
-                        {option.runner.name.first} {option.runner.name.last} ({option.runner.club})
-                      </span>
-                    </div>
-                  ),
-                  runner: option.runner // Pass runner directly
+                  value: `${option.value} - ${option.runner.name.first} ${option.runner.name.last} (${option.runner.club})`,
+                  key: option.runner.id,
+                  runnerIndex: index
                 }))}
                 onSearch={handleCardNumberSearch}
-                onSelect={(value, option) => {
-                  // Use the runner from the selected option directly
-                  if (option && typeof option === 'object' && 'runner' in option) {
-                    handleRunnerSelect(option.runner as LocalRunner);
+                onSelect={(value) => {
+                  // Find the runner based on the selected display value
+                  const selectedOption = cardNumberOptions.find(opt => 
+                    `${opt.value} - ${opt.runner.name.first} ${opt.runner.name.last} (${opt.runner.club})` === value
+                  );
+                  if (selectedOption) {
+                    handleRunnerSelect(selectedOption.runner);
                   }
                 }}
                 onChange={(value) => {
-                  if (typeof value === 'string' && value !== foundRunner?.cardNumber?.toString()) {
+                  // If value doesn't contain dash and parentheses, user is typing manually
+                  if (typeof value === 'string' && !value.includes(' - ') && !value.includes('(')) {
                     clearFoundRunner();
                   }
                 }}
                 placeholder="Scan card or enter number (auto-complete from database)"
                 style={{ width: '100%' }}
               />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Row gutter={16}>
+          <Col span={24}>
+            <Form.Item
+              name="isHiredCard"
+              valuePropName="checked"
+            >
+              <Checkbox style={{ color: '#ff4d4f', fontWeight: 500 }}>
+                🎫 This is a RENTAL card (must be collected)
+              </Checkbox>
             </Form.Item>
           </Col>
         </Row>

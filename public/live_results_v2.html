@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Results - MeOS</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+            gap: 20px;
+        }
+        .class-results {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .class-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        .class-name {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .course-length {
+            color: #666;
+            font-size: 14px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background: #f5f5f5;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #666;
+        }
+        tr:hover {
+            background: #f9f9f9;
+        }
+        .place {
+            font-weight: bold;
+            color: #667eea;
+        }
+        .time {
+            font-family: 'Courier New', monospace;
+        }
+        .recent-finish {
+            background: #d4edda !important;
+            animation: highlight 2s ease-in-out;
+        }
+        @keyframes highlight {
+            0%, 100% { background: #d4edda; }
+            50% { background: #b8dabd; }
+        }
+        .controls {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        select, input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-left: 10px;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: white;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 id="eventTitle">Live Results</h1>
+            <div class="status-bar">
+                <div class="status-item">
+                    <span>📅</span>
+                    <span id="eventDate"></span>
+                </div>
+                <div class="status-item">
+                    <span>🔄</span>
+                    <span id="lastUpdate">Loading...</span>
+                </div>
+                <div class="status-item">
+                    <span id="dataSource">🔌 Connecting...</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <label>
+                Refresh Interval:
+                <select id="refreshInterval">
+                    <option value="5">5 seconds</option>
+                    <option value="10">10 seconds</option>
+                    <option value="15" selected>15 seconds</option>
+                    <option value="30">30 seconds</option>
+                    <option value="60">60 seconds</option>
+                </select>
+            </label>
+            <label>
+                Screens:
+                <select id="screenCount">
+                    <option value="1" selected>1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                </select>
+            </label>
+        </div>
+
+        <div id="resultsContainer" class="loading">
+            Loading results...
+        </div>
+    </div>
+
+    <script type="module">
+        import { meosApi } from '../src/services/meosApi.ts';
+        import { getAllCourseLengths } from '../src/services/meosFileService.ts';
+        
+        // Configuration
+        let REFRESH_INTERVAL = 15000;
+        let refreshIntervalId = null;
+        let screenCount = 1;
+        let courseLengths = {};
+        let finishTimestamps = {};
+        let classMap = {}; // ID -> Name mapping
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            loadConfiguration();
+            setupEventListeners();
+            await loadEventMetadata();
+            await loadClassMap();
+            await loadCourseLengths();
+            await fetchResults();
+            startAutoRefresh();
+        });
+        
+        function loadConfiguration() {
+            const saved = localStorage.getItem('liveResults_config');
+            if (saved) {
+                const config = JSON.parse(saved);
+                screenCount = config.screenCount || 1;
+                REFRESH_INTERVAL = (config.refreshInterval || 15) * 1000;
+                document.getElementById('screenCount').value = screenCount;
+                document.getElementById('refreshInterval').value = config.refreshInterval || 15;
+            }
+        }
+        
+        function saveConfiguration() {
+            localStorage.setItem('liveResults_config', JSON.stringify({
+                screenCount,
+                refreshInterval: REFRESH_INTERVAL / 1000
+            }));
+        }
+        
+        function setupEventListeners() {
+            document.getElementById('screenCount').addEventListener('change', (e) => {
+                screenCount = parseInt(e.target.value);
+                saveConfiguration();
+                fetchResults();
+            });
+            
+            document.getElementById('refreshInterval').addEventListener('change', (e) => {
+                REFRESH_INTERVAL = parseInt(e.target.value) * 1000;
+                saveConfiguration();
+                startAutoRefresh();
+            });
+        }
+        
+        function startAutoRefresh() {
+            if (refreshIntervalId) clearInterval(refreshIntervalId);
+            refreshIntervalId = setInterval(fetchResults, REFRESH_INTERVAL);
+        }
+        
+        async function loadEventMetadata() {
+            try {
+                const competition = await meosApi.getCompetition();
+                if (competition) {
+                    document.getElementById('eventTitle').textContent = 
+                        `Live Results - ${competition.name}`;
+                    document.getElementById('eventDate').textContent = competition.date;
+                }
+            } catch (error) {
+                console.error('Failed to load event metadata:', error);
+            }
+        }
+        
+        async function loadClassMap() {
+            try {
+                console.log('🎯 Loading class information...');
+                const classes = await meosApi.getAllClasses();
+                
+                // Build ID -> Name map
+                for (const cls of classes) {
+                    classMap[cls.id] = cls.name;
+                }
+                
+                console.log('✅ Class map loaded:', classMap);
+            } catch (error) {
+                console.error('❌ Failed to load class map:', error);
+            }
+        }
+        
+        async function loadCourseLengths() {
+            try {
+                console.log('📏 Loading course lengths from .meos file...');
+                courseLengths = await getAllCourseLengths();
+                console.log('✅ Course lengths loaded:', courseLengths);
+            } catch (error) {
+                console.error('❌ Failed to load course lengths:', error);
+            }
+        }
+        
+        async function fetchResults() {
+            try {
+                console.log('🔄 Fetching results...');
+                
+                // Get results from MeOS API
+                const resultsData = await meosApi.getResults({ preliminary: true });
+                
+                if (!resultsData || !resultsData.results) {
+                    throw new Error('No results data received');
+                }
+                
+                // Parse and organize by class
+                const resultsByClass = await parseResultsWithAnalysis(resultsData);
+                
+                // Display
+                displayResults(resultsByClass);
+                updateStatusDisplay('online');
+                
+            } catch (error) {
+                console.error('❌ Failed to fetch results:', error);
+                updateStatusDisplay('error');
+            }
+        }
+        
+        async function parseResultsWithAnalysis(resultsData) {
+            const results = resultsData.results;
+            const persons = Array.isArray(results.person) ? results.person : (results.person ? [results.person] : []);
+            
+            // Group by class
+            const byClass = {};
+            
+            for (const person of persons) {
+                const competitorId = person.name?.['@attributes']?.id;
+                const classId = person['@attributes']?.cls;
+                const className = getClassName(classId);
+                
+                if (!byClass[className]) {
+                    byClass[className] = [];
+                }
+                
+                const name = person.name?.['#text'] || person.name || '';
+                const club = person.org?.['#text'] || person.org || '';
+                const place = parseInt(person['@attributes']?.place || '0');
+                const timeDeciseconds = parseInt(person['@attributes']?.rt || '0');
+                const status = parseInt(person['@attributes']?.stat || '0');
+                
+                // Base runner data
+                const runner = {
+                    competitorId,
+                    place,
+                    name,
+                    club,
+                    time: formatTime(timeDeciseconds * 100),
+                    timeMs: timeDeciseconds * 100,
+                    status: status === 1 ? 'OK' : 'DNF',
+                    timeBehind: null,
+                    timeLost: null,
+                };
+                
+                byClass[className].push(runner);
+            }
+            
+            // Sort each class by place
+            for (const className in byClass) {
+                byClass[className].sort((a, b) => a.place - b.place);
+            }
+            
+            // Fetch detailed split analysis for top finishers
+            await enrichWithSplitAnalysis(byClass);
+            
+            return byClass;
+        }
+        
+        async function enrichWithSplitAnalysis(resultsByClass) {
+            for (const className in resultsByClass) {
+                const runners = resultsByClass[className];
+                
+                // Fetch analysis for all finished runners
+                const finishedRunners = runners.filter(r => r.status === 'OK');
+                
+                console.log(`🔍 Fetching split analysis for ${finishedRunners.length} runners in ${className}...`);
+                
+                for (const runner of finishedRunners) {
+                    if (!runner.competitorId) continue;
+                    
+                    try {
+                        // Fetch detailed competitor data with splits
+                        const details = await meosApi.lookupCompetitorById({ 
+                            id: parseInt(runner.competitorId) 
+                        });
+                        
+                        if (details) {
+                            // Extract time behind and time lost from analysis
+                            runner.timeBehind = details.timeAfterMs || 0;
+                            runner.timeLost = calculateTotalTimeLost(details.splits);
+                            
+                            console.log(`  ✅ ${runner.name}: Behind=${formatTime(runner.timeBehind)}, Lost=${formatTime(runner.timeLost)}`);
+                        }
+                    } catch (error) {
+                        console.warn(`  ❌ Failed to get analysis for ${runner.name}:`, error);
+                    }
+                }
+            }
+        }
+        
+        function calculateTotalTimeLost(splits) {
+            if (!splits || splits.length === 0) return 0;
+            
+            let totalLost = 0;
+            for (const split of splits) {
+                if (split.analysis && split.analysis.lost) {
+                    // Parse time string like "1:23" to milliseconds
+                    const lostMs = parseTimeString(split.analysis.lost);
+                    totalLost += lostMs;
+                }
+            }
+            
+            return totalLost;
+        }
+        
+        function parseTimeString(timeStr) {
+            if (!timeStr || timeStr === '') return 0;
+            
+            const parts = timeStr.split(':');
+            if (parts.length >= 2) {
+                const minutes = parseInt(parts[0]) || 0;
+                const seconds = parseFloat(parts[1]) || 0;
+                return (minutes * 60 + seconds) * 1000;
+            }
+            
+            return 0;
+        }
+        
+        function getClassName(classId) {
+            return classMap[classId] || `Class ${classId}`;
+        }
+        
+        function formatTime(ms) {
+            if (!ms || ms === 0) return '-';
+            const totalSeconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        }
+        
+        function displayResults(resultsByClass) {
+            const container = document.getElementById('resultsContainer');
+            container.className = 'results-grid';
+            container.innerHTML = '';
+            
+            // Get class names sorted by your rule
+            const classNames = Object.keys(resultsByClass).sort(sortClassNames);
+            
+            for (const className of classNames) {
+                const runners = resultsByClass[className];
+                const courseLength = courseLengths[className] || 0;
+                
+                const classDiv = document.createElement('div');
+                classDiv.className = 'class-results';
+                classDiv.innerHTML = `
+                    <div class="class-header">
+                        <div>
+                            <div class="class-name">${className}</div>
+                            ${courseLength > 0 ? `<div class="course-length">${courseLength}m</div>` : ''}
+                        </div>
+                        <div>${runners.length} runners</div>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Pl</th>
+                                <th>Name</th>
+                                <th>Club</th>
+                                <th>Time</th>
+                                <th>Behind</th>
+                                <th>Lost</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${runners.map(r => `
+                                <tr>
+                                    <td class="place">${r.place || '-'}</td>
+                                    <td>${r.name}</td>
+                                    <td>${r.club}</td>
+                                    <td class="time">${r.time}</td>
+                                    <td class="time">${r.timeBehind ? formatTime(r.timeBehind) : '-'}</td>
+                                    <td class="time">${r.timeLost ? formatTime(r.timeLost) : '-'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+                
+                container.appendChild(classDiv);
+            }
+        }
+        
+        function sortClassNames(a, b) {
+            // Your custom sorting per rules: white, yellow, orange, brown, green, red, blue
+            const order = ['White', 'Yellow', 'Orange', 'Brown', 'Green', 'Red', 'Blue'];
+            const indexA = order.indexOf(a);
+            const indexB = order.indexOf(b);
+            
+            if (indexA === -1 && indexB === -1) return a.localeCompare(b);
+            if (indexA === -1) return 1;
+            if (indexB === -1) return -1;
+            return indexA - indexB;
+        }
+        
+        function updateStatusDisplay(status) {
+            const lastUpdate = document.getElementById('lastUpdate');
+            const dataSource = document.getElementById('dataSource');
+            const now = new Date().toLocaleTimeString();
+            
+            if (status === 'online') {
+                lastUpdate.textContent = `Updated ${now}`;
+                lastUpdate.style.color = '#00AA00';
+                dataSource.textContent = '✅ Live Data';
+                dataSource.style.color = '#00AA00';
+            } else {
+                lastUpdate.textContent = `Error ${now}`;
+                lastUpdate.style.color = '#FF0000';
+                dataSource.textContent = '❌ Connection Error';
+                dataSource.style.color = '#FF0000';
+            }
+        }
+    </script>
+</body>
+</html>

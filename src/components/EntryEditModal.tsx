@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Select, Row, Col, Space, Button, Typography, message, Alert, Checkbox } from 'antd';
 import { IdcardOutlined, LoginOutlined } from '@ant-design/icons';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
-import { meosClassService } from '../services/meosClassService';
+import { meosClassService, type MeosClass } from '../services/meosClassService';
 import { meosApi } from '../services/meosApi';
 import { sportIdentService, type SICardReadEvent } from '../services/sportIdentService';
 import { RENTAL_CARD_FEE } from '../constants';
@@ -21,7 +21,7 @@ interface EntryEditModalProps {
 
 const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, onUpdated, onCheckedIn, lastCardNumber }) => {
   const [form] = Form.useForm();
-  const [classes, setClasses] = useState<Array<{ id: string; name: string; fee?: number }>>([]);
+  const [classes, setClasses] = useState<MeosClass[]>([]);
   const [saving, setSaving] = useState(false);
   const [readerStatus, setReaderStatus] = useState(sportIdentService.getStatus());
   const [lastCard, setLastCard] = useState<string | null>(null);
@@ -35,13 +35,13 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
       } catch (e) {
         // fall back to common set
         setClasses([
-          { id: '1', name: 'White' },
-          { id: '2', name: 'Yellow' },
-          { id: '3', name: 'Orange' },
-          { id: '4', name: 'Brown' },
-          { id: '5', name: 'Green' },
-          { id: '6', name: 'Red' },
-          { id: '7', name: 'Blue' },
+          { id: 1, name: 'White' },
+          { id: 2, name: 'Yellow' },
+          { id: 3, name: 'Orange' },
+          { id: 4, name: 'Brown' },
+          { id: 5, name: 'Green' },
+          { id: 6, name: 'Red' },
+          { id: 7, name: 'Blue' },
         ]);
       }
     })();
