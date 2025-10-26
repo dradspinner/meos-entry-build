@@ -1,7 +1,7 @@
 {
   "name": "meos-entry-build",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -72,7 +72,8 @@
     },
     "files": [
       "dist/**/*",
-      "public/electron.js",
+      "public/**/*",
+      "!public/live_data.json",
       "node_modules/**/*"
     ],
     "win": {

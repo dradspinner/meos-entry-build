@@ -1,22 +1,52 @@
-# DVOA Enhanced Name Matching System
+# MeOS Entry Build - DVOA Event Management System
 
 ## Overview
 
-This project improves the name matching logic in the DVOA admin system for processing orienteering event results. The current system has basic name matching that often fails with common variations in names, leading to manual intervention for many runner entries.
+A comprehensive Electron-based desktop application for managing orienteering event operations with MeOS integration. This system provides pre-event setup, same-day registration and check-in, SI card reader integration, runner database management, and live results display.
 
-## Current Issues Identified
+## Key Features
 
-From analyzing the existing code and CSV data:
+### 🏃 Event Day Operations
+- **Same-Day Registration**: Walk-in runner registration with MeOS integration
+- **Check-In System**: Fast check-in with SI card scanning
+- **Entry Management**: Edit and manage runner entries before start
+- **Rental Card Tracking**: Mark and track rental SI cards with collection reminders
+- **Real-time Verification**: Validate entries against MeOS database
 
-1. **Basic String Matching**: Current system only uses exact string matches with minimal fuzzy logic
-2. **Simple Pattern Matching**: Only matches exact last names or first letters
-3. **No Fuzzy String Matching**: Cannot handle:
-   - Typos (e.g., "Johnston" vs "Johnson") 
-   - Different spellings (e.g., "Catherine" vs "Kathryn")
-   - Nickname variations (e.g., "Bob" vs "Robert")
-   - Accent marks and special characters
-4. **No Phonetic Matching**: Cannot match names that sound similar but spelled differently
-5. **Poor User Interface**: Manual matching interface is basic and doesn't provide confidence scores
+### 📊 Live Results Display  
+- **Multi-Screen Support**: Display results across 1-4 monitors
+- **Medal Highlights**: Gold/silver/bronze backgrounds for top 3 finishers
+- **Recent Finisher Alerts**: Bold text for new finishers (within 4 minutes)
+- **Checked-In Tracking**: Show runners who checked in but haven't started
+- **User Controls**: Configurable refresh rate (10s-60s)
+- **Course Information**: Auto-display course lengths and difficulty
+- **Time Lost Analysis**: MeOS-based split analysis algorithm
+
+### 🗄️ Runner Database
+- **Cloud Sync**: Sync runner database across multiple devices
+- **Quick Search**: Fast lookup by name or club
+- **Import/Export**: CSV import for bulk updates
+- **Historical Data**: Track runner participation history
+
+### 🎯 SI Card Reader Integration
+- **Auto-Detection**: Automatic SportIdent reader connection
+- **Card Scanning**: Instant card number capture on scan
+- **Auto-Assignment**: Match scanned cards to pending entries
+- **Serial Port Management**: Handles multiple reader types
+
+### 📋 Pre-Event Setup
+- **Event Builder**: Create and configure events from scratch
+- **Jotform Integration**: Import pre-registrations from Jotform
+- **OE File Import**: Import entries from IOE or CSV formats
+- **Course Configuration**: Set up courses and class assignments
+- **Export to MeOS**: Generate MeOS-compatible entry files
+
+### 🌐 Network Configuration
+- **MySQL Network Setup**: One-click configuration for two-computer setups
+- **Automatic Firewall Configuration**: Sets up Windows Firewall rules
+- **User Management**: Creates DVOA user with network access permissions
+- **IP Address Display**: Shows local IP for connecting other computers
+- **[Documentation](docs/MYSQL_NETWORK_SETUP.md)**: Complete setup guide
 
 ## Improved Features
 

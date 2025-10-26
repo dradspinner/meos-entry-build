@@ -279,6 +279,87 @@ function stopPythonServer() {
   }
 }
 
+// Run MySQL Network Setup
+function runMySQLNetworkSetup() {
+  const setupScriptPath = path.join(__dirname, 'setup-mysql-network.ps1');
+  
+  console.log('[Electron] Running MySQL Network Setup...');
+  console.log('[Electron] Script path:', setupScriptPath);
+  
+  // Check if script exists
+  if (!require('fs').existsSync(setupScriptPath)) {
+    dialog.showErrorBox(
+      'Setup Script Not Found',
+      `Could not find setup script at:\n${setupScriptPath}\n\nPlease ensure setup-mysql-network.ps1 exists in the public folder.`
+    );
+    return;
+  }
+  
+  // Show info dialog first
+  const result = dialog.showMessageBoxSync(mainWindow, {
+    type: 'info',
+    title: 'MySQL Network Setup',
+    message: 'Configure MySQL for Network Access',
+    detail: 'This will:\n' +
+            '1. Create DVOA user for local and network access\n' +
+            '2. Configure Windows Firewall to allow MySQL connections\n' +
+            '3. Display your computer\'s IP address for other computers\n\n' +
+            'Administrator privileges may be required for firewall configuration.\n\n' +
+            'Default passwords:\n' +
+            '  MySQL Root: DVOArunner\n' +
+            '  DVOA User: DVOArunner',
+    buttons: ['Continue', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1
+  });
+  
+  if (result === 1) {
+    console.log('[Electron] MySQL setup cancelled by user');
+    return;
+  }
+  
+  try {
+    // Run PowerShell script with elevated privileges
+    const { spawn } = require('child_process');
+    
+    // Use Start-Process with -Verb RunAs to run as admin
+    const psCommand = `Start-Process powershell -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File \"${setupScriptPath}\"" -Wait`;
+    
+    const setupProcess = spawn('powershell', [
+      '-ExecutionPolicy', 'Bypass',
+      '-Command', psCommand
+    ], {
+      shell: true,
+      stdio: 'inherit'
+    });
+    
+    setupProcess.on('error', (error) => {
+      console.error('[Electron] Error running MySQL setup:', error);
+      dialog.showErrorBox(
+        'Setup Error',
+        `Failed to run MySQL setup script:\n${error.message}`
+      );
+    });
+    
+    setupProcess.on('exit', (code) => {
+      if (code === 0) {
+        console.log('[Electron] MySQL setup completed successfully');
+      } else {
+        console.error(`[Electron] MySQL setup exited with code ${code}`);
+      }
+    });
+    
+    console.log('[Electron] MySQL setup process started');
+    
+  } catch (error) {
+    console.error('[Electron] Error starting MySQL setup:', error);
+    dialog.showErrorBox(
+      'Setup Error',
+      `Failed to start MySQL setup:\n${error.message}`
+    );
+  }
+}
+
 // App event handlers
 app.whenReady().then(() => {
   // IMPORTANT: Set up serial port permissions BEFORE creating window
@@ -460,6 +541,13 @@ function createMenuBar() {
             console.log('[Electron] Opening Runner Database window...');
             createDatabaseManagerWindow();
           }
+        },
+        { type: 'separator' },
+        {
+          label: 'Setup MySQL Network Access',
+          click: () => {
+            runMySQLNetworkSetup();
+          }
         }
       ]
     },
@@ -610,6 +698,39 @@ ipcMain.handle('write-live-results', async (event, jsonContent) => {
 ipcMain.handle('check-for-updates', async (event) => {
   // TODO: Implement auto-updater
   return { hasUpdates: false };
+});
+
+// Clipboard operations
+ipcMain.handle('write-clipboard', async (event, text) => {
+  try {
+    const { clipboard } = require('electron');
+    clipboard.writeText(text);
+    return { success: true };
+  } catch (error) {
+    console.error('[Electron] Failed to write to clipboard:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('read-clipboard', async (event) => {
+  try {
+    const { clipboard } = require('electron');
+    return clipboard.readText();
+  } catch (error) {
+    console.error('[Electron] Failed to read from clipboard:', error);
+    return '';
+  }
+});
+
+// Shell operations
+ipcMain.handle('open-external', async (event, path) => {
+  try {
+    await shell.openPath(path);
+    return { success: true };
+  } catch (error) {
+    console.error('[Electron] Failed to open path:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 // Error handling

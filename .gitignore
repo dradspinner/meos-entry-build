@@ -22,3 +22,29 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Backup and temp files
+*.bak
+*.tmp
+*.temp
+*_old.*
+*_backup.*
+
+# Build output
+out/
+build/
+release/
+
+# MeOS temp data
+temp_meos/
+public/live_data.json
+
+# Test files
+test_*.cjs
+test-*.js
+*.test.html
+
+# Results and event specific files
+*_results.html
+results.xml
+results_with_total.xml
