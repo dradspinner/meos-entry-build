@@ -42,7 +42,7 @@ const { TextArea } = Input;
 export const RunnerDatabase: React.FC = () => {
   const { message: messageApi } = App.useApp();
   const [runners, setRunners] = useState<LocalRunner[]>([]);
-  const [stats, setStats] = useState({ total: 0, totalUsage: 0, lastUsed: undefined as Date | undefined });
+  const [stats, setStats] = useState<{ total: number; totalUsage: number; lastUsed?: Date }>({ total: 0, totalUsage: 0 });
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [bulkPopulateProgress, setBulkPopulateProgress] = useState({ 

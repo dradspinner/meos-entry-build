@@ -690,7 +690,7 @@ class SportIdentService {
    */
   async runDiagnostics(): Promise<{
     webSerialSupported: boolean;
-    availablePorts: any[];
+    availablePorts: Array<{ connected: boolean; info: SerialPortInfo }>;
     electronPermissions: boolean;
     browserInfo: string;
     errors: string[];
@@ -698,7 +698,7 @@ class SportIdentService {
   }> {
     const results = {
       webSerialSupported: false,
-      availablePorts: [],
+      availablePorts: [] as Array<{ connected: boolean; info: SerialPortInfo }>,
       electronPermissions: false,
       browserInfo: '',
       errors: [] as string[],

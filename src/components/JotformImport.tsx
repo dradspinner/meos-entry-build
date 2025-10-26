@@ -157,20 +157,19 @@ const JotformImport: React.FC = () => {
       
       console.log(`[CSV Parse] Auto-detected delimiter: "${delimiter}"`);
       
-      Papa.parse(content, {
+      Papa.parse<any>(content, {
         header: true,
         skipEmptyLines: true,
         delimiter: delimiter,
-        skipLinesWithError: false, // Keep lines with field mismatch
-        transformHeader: (header) => header.trim(), // Clean headers
-        complete: (results: any) => {
+        transformHeader: (header: string) => header.trim(), // Clean headers
+        complete: (results: Papa.ParseResult<any>) => {
         console.log('Parsed CSV:', results);
         
         if (results.errors.length > 0) {
           console.error('CSV parsing errors:', results.errors);
           
           // Log first few errors for debugging
-          results.errors.slice(0, 5).forEach((error, index) => {
+          results.errors.slice(0, 5).forEach((error: Papa.ParseError, index: number) => {
             console.error(`CSV Error ${index + 1}:`, {
               type: error.type,
               code: error.code,
@@ -180,7 +179,7 @@ const JotformImport: React.FC = () => {
           });
           
           // Only show error if there are critical parsing errors
-          const criticalErrors = results.errors.filter(error => 
+          const criticalErrors = results.errors.filter((error: Papa.ParseError) => 
             error.type === 'Delimiter' || error.type === 'Quotes' || error.code === 'UndetectableDelimiter'
           );
           
@@ -209,7 +208,7 @@ const JotformImport: React.FC = () => {
             isOE12 ? parseOE12Row(row, index) : parseJotformRow(row, index)
           );
           
-          const validEntries = entries.filter(entry => entry !== null);
+          const validEntries = entries.filter((entry): entry is JotformEntry => entry !== null);
           console.log(`[CSV Debug] First valid entry:`, validEntries[0]);
           
           setCsvData(validEntries);

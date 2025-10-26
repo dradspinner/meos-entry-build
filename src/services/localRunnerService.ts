@@ -737,7 +737,7 @@ class LocalRunnerService {
                   console.log('[LocalRunner] Successfully loaded from file (web version)');
                   resolve({ success: true, ...result });
                 } catch (error) {
-                  resolve({ success: false, imported: 0, updated: 0, errors: [error.toString()] });
+                  resolve({ success: false, imported: 0, updated: 0, errors: [String(error)] });
                 }
               };
               reader.readAsText(file);
@@ -750,7 +750,7 @@ class LocalRunnerService {
       }
     } catch (error) {
       console.error('[LocalRunner] Error loading from cloud:', error);
-      return { success: false, imported: 0, updated: 0, errors: [error.toString()] };
+      return { success: false, imported: 0, updated: 0, errors: [String(error)] };
     }
   }
 
