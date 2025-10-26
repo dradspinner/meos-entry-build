@@ -52,12 +52,12 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
       // If classId is not in the classes list, try to find by className
       let classIdToUse = entry.classId;
       if (entry.classId && classes.length > 0) {
-        const classExists = classes.find(c => c.id === entry.classId);
+        const classExists = classes.find(c => c.id.toString() === entry.classId);
         if (!classExists && entry.className) {
           // Try to find by name
           const classByName = classes.find(c => c.name.toLowerCase() === entry.className.toLowerCase());
           if (classByName) {
-            classIdToUse = classByName.id;
+            classIdToUse = classByName.id.toString();
           }
         }
       }

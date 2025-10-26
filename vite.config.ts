@@ -26,7 +26,7 @@ export default defineConfig({
               response.end(JSON.stringify({ error: 'MeOS service unavailable. Please ensure MeOS is running on port 2009.' }));
             }
           });
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
+          proxy.on('proxyReq', (_proxyReq, req, _res) => {
             console.log('Proxying request:', req.method, req.url);
           });
         }

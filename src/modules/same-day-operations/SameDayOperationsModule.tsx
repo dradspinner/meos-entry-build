@@ -22,7 +22,7 @@ export default function SameDayOperationsModule() {
           Dashboard
         </Space>
       ),
-      children: <Dashboard />,
+      children: <Dashboard onNavigateToEventBuilder={() => {}} onNavigateToEventDayOps={() => {}} />,
     },
     {
       key: 'checkin',

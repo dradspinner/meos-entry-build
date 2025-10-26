@@ -51,6 +51,7 @@ interface RegistrationFormData {
   sex?: 'M' | 'F';
   phone?: string;
   nationality?: string;
+  isHiredCard?: boolean;
 }
 
 const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
@@ -251,11 +252,11 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         className: values.className,
         classId: values.classId,
         cardNumber: values.cardNumber,
-        birthYear: values.birthYear,
-        sex: normalizedSex,
-        phone: values.phone,
-        nationality: values.nationality,
-        isHiredCard: values.isHiredCard || false,
+        birthYear: values.birthYear ?? '',
+        sex: normalizedSex ?? '',
+        phone: values.phone ?? '',
+        nationality: values.nationality ?? '',
+        isHiredCard: values.isHiredCard ?? false,
         fee: classes.find(c => c.id === values.classId)?.fee || 0,
         importedFrom: 'manual'
       });
@@ -374,11 +375,11 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         className: allValues.classId ? (classes.find(c => c.id === allValues.classId)?.name || allValues.className) : 'TBD',
         classId: allValues.classId || 'TBD',
         cardNumber: allValues.cardNumber || '0',
-        birthYear: allValues.birthYear,
-        sex: normalizedSex,
-        phone: allValues.phone,
-        nationality: allValues.nationality,
-        isHiredCard: allValues.isHiredCard || false,
+        birthYear: allValues.birthYear ?? '',
+        sex: normalizedSex ?? '',
+        phone: allValues.phone ?? '',
+        nationality: allValues.nationality ?? '',
+        isHiredCard: allValues.isHiredCard ?? false,
         fee: allValues.classId ? (classes.find(c => c.id === allValues.classId)?.fee || 0) : 0,
         importedFrom: 'manual'
       });
