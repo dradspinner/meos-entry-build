@@ -112,7 +112,7 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
       name: { first: values.firstName, last: values.lastName },
       club: values.club,
       classId: values.classId,
-      className: classes.find(c => c.id === values.classId)?.name || entry.className,
+      className: classes.find(c => c.id.toString() === values.classId)?.name || entry.className,
       cardNumber: values.cardNumber,
       birthYear: values.birthYear,
       sex: values.sex,
@@ -142,7 +142,7 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
       name: { first: values.firstName, last: values.lastName },
       club: values.club,
       classId: values.classId,
-      className: classes.find(c => c.id === values.classId)?.name || entry.className,
+      className: classes.find(c => c.id.toString() === values.classId)?.name || entry.className,
       cardNumber: values.cardNumber,
       birthYear: values.birthYear,
       sex: values.sex,
@@ -157,7 +157,7 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
         try {
           // Ensure MeOS classes are loaded and map by class NAME, not fallback
           const meosClasses = await meosClassService.getClasses(true);
-          const classNameToFind = meosClasses.find(c => c.id === values.classId)?.name || checkedIn.className;
+          const classNameToFind = meosClasses.find(c => c.id.toString() === values.classId)?.name || checkedIn.className;
           const meosClass = meosClasses.find(c => 
             c.name?.toLowerCase() === (classNameToFind||'').toLowerCase() ||
             c.shortName?.toLowerCase() === (classNameToFind||'').toLowerCase()
@@ -281,7 +281,7 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
               <Form.Item label="Class" name="classId" rules={[{ required: true }]}>
                 <Select showSearch optionFilterProp="children">
                   {classes.map(c => (
-                    <Option key={c.id} value={c.id}>{c.name}</Option>
+                    <Option key={c.id} value={c.id.toString()}>{c.name}</Option>
                   ))}
                 </Select>
               </Form.Item>
