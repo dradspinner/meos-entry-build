@@ -2,6 +2,8 @@
   "name": "meos-entry-build",
   "private": true,
   "version": "1.0.0",
+  "description": "Complete event management solution for orienteering competitions - build events, manage entries, and run day-of-event operations with MeOS integration",
+  "author": "DVOA",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -81,8 +83,7 @@
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         },
         {
@@ -94,7 +95,8 @@
       ],
       "icon": "public/icon.ico",
       "publisherName": "DVOA",
-      "verifyUpdateCodeSignature": false
+      "verifyUpdateCodeSignature": false,
+      "sign": null
     },
     "nsis": {
       "oneClick": false,
