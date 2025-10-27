@@ -4,6 +4,7 @@ import type { ServerResponse } from 'http'
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: './', // Use relative paths for Electron production builds
   plugins: [
     react()
   ],
