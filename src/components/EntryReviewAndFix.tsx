@@ -210,6 +210,7 @@ const EntryReviewAndFix: React.FC = () => {
     try {
       await sqliteRunnerDB.initialize();
       let synced = 0;
+      let pulled = 0;
       let duplicatesFound: Array<{ entry: LocalEntry; matches: RunnerRecord[] }> = [];
       
       // First pass: detect potential duplicates
@@ -239,6 +240,36 @@ const EntryReviewAndFix: React.FC = () => {
         const e = item.entry;
         if (!e.name.last) continue;
         
+        // If runner exists in database, pull missing data from DB first
+        if (item.sqliteRunner) {
+          const updates: Partial<LocalEntry> = {};
+          let hasUpdates = false;
+          
+          // Pull phone number if entry is missing it but DB has it
+          if ((!e.phone || e.phone.trim() === '') && item.sqliteRunner.phone && item.sqliteRunner.phone.trim() !== '') {
+            updates.phone = item.sqliteRunner.phone;
+            hasUpdates = true;
+          }
+          
+          // Pull other missing fields from database
+          if ((!e.birthYear || e.birthYear.trim() === '') && item.sqliteRunner.birth_year) {
+            updates.birthYear = String(item.sqliteRunner.birth_year);
+            hasUpdates = true;
+          }
+          
+          if ((!e.sex || e.sex.trim() === '') && item.sqliteRunner.sex) {
+            updates.sex = item.sqliteRunner.sex;
+            hasUpdates = true;
+          }
+          
+          // Apply updates if any
+          if (hasUpdates) {
+            localEntryService.updateEntry(e.id, updates);
+            pulled++;
+          }
+        }
+        
+        // Then sync entry data to database
         const cardNum = e.cardNumber ? parseInt(e.cardNumber.toString()) : undefined;
         sqliteRunnerDB.updateRunnerFromEntry(
           e.name.first,
@@ -251,7 +282,14 @@ const EntryReviewAndFix: React.FC = () => {
         synced++;
       }
       
-      message.success(`Synced ${synced} runners to SQLite database`);
+      // Rescan to show updated data
+      scan();
+      
+      if (pulled > 0) {
+        message.success(`Synced ${synced} runners to database and pulled ${pulled} phone numbers/info from database`);
+      } else {
+        message.success(`Synced ${synced} runners to SQLite database`);
+      }
     } catch (error) {
       console.error('[EntryReview] Sync to SQLite failed:', error);
       message.error('Failed to sync to SQLite database');

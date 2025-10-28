@@ -80,6 +80,9 @@ class SQLiteRunnerDatabaseService {
       // Run schema creation (CREATE IF NOT EXISTS is safe to run multiple times)
       if (this.db) {
         this.db.exec(schema);
+        
+        // Run migrations to update views
+        this.runMigrations();
       }
 
       this.initialized = true;
@@ -92,6 +95,46 @@ class SQLiteRunnerDatabaseService {
     } catch (error) {
       console.error('[SQLiteDB] Failed to initialize database:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Run database migrations
+   */
+  private runMigrations(): void {
+    if (!this.db) return;
+
+    try {
+      // Drop and recreate data_quality_issues view with updated definition
+      this.db.exec('DROP VIEW IF EXISTS data_quality_issues');
+      this.db.exec(`
+        CREATE VIEW data_quality_issues AS
+        SELECT 
+          id,
+          first_name,
+          last_name,
+          club,
+          birth_year,
+          sex,
+          card_number,
+          CASE
+            WHEN birth_year IS NULL THEN 'Missing birth year'
+            WHEN birth_year < 1920 THEN 'Birth year too old'
+            WHEN birth_year > strftime('%Y', 'now') THEN 'Birth year in future'
+            WHEN sex IS NULL THEN 'Missing gender'
+            ELSE 'Unknown issue'
+          END as issue_type
+        FROM runners_with_clubs
+        WHERE 
+          birth_year IS NULL 
+          OR birth_year < 1920 
+          OR birth_year > strftime('%Y', 'now')
+          OR sex IS NULL
+      `);
+      
+      console.log('[SQLiteDB] ✓ Migrations applied');
+    } catch (error) {
+      console.error('[SQLiteDB] Migration failed:', error);
     }
   }
 
@@ -131,10 +174,21 @@ class SQLiteRunnerDatabaseService {
    */
   private async loadSeedDatabase(): Promise<boolean> {
     try {
-      // Try to fetch seed database from public folder
-      const response = await fetch('/runner_database_seed.db');
+      // Determine the correct path based on environment
+      let seedPath = '/runner_database_seed.db';
+      
+      // In Electron, use relative path from the app's resources
+      if (window.location.protocol === 'file:') {
+        // Get the base path (removing index.html)
+        const basePath = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/'));
+        seedPath = window.location.origin + basePath + '/runner_database_seed.db';
+      }
+      
+      console.log('[SQLiteDB] Attempting to load seed database from:', seedPath);
+      const response = await fetch(seedPath);
+      
       if (!response.ok) {
-        console.log('[SQLiteDB] No seed database found');
+        console.log('[SQLiteDB] No seed database found (status:', response.status, ')');
         return false;
       }
 
@@ -431,40 +485,175 @@ class SQLiteRunnerDatabaseService {
     // This is a simplified version - you may want to use a more sophisticated algorithm
     // For now, we'll find exact matches or very similar names
     const result = this.db!.exec(`
-      SELECT 
-        r1.id as runner_id_1,
-        r2.id as runner_id_2,
-        100.0 as similarity_score,
-        'Exact name match' as match_reason,
-        0 as reviewed
-      FROM runners r1
-      JOIN runners r2 ON 
-        r1.id < r2.id AND
-        LOWER(r1.first_name) = LOWER(r2.first_name) AND
-        LOWER(r1.last_name) = LOWER(r2.last_name)
-      
-      UNION
-      
-      SELECT 
-        r1.id as runner_id_1,
-        r2.id as runner_id_2,
-        90.0 as similarity_score,
-        'Same last name, similar first name, same birth year' as match_reason,
-        0 as reviewed
-      FROM runners r1
-      JOIN runners r2 ON 
-        r1.id < r2.id AND
-        r1.last_name = r2.last_name AND
-        r1.birth_year = r2.birth_year AND
-        r1.birth_year IS NOT NULL AND
-        ABS(LENGTH(r1.first_name) - LENGTH(r2.first_name)) <= 2
-      
+      SELECT * FROM (
+        SELECT 
+          r1.id as runner_id_1,
+          r2.id as runner_id_2,
+          100.0 as similarity_score,
+          'Exact name match' as match_reason,
+          0 as reviewed,
+          NULL as id,
+          NULL as action
+        FROM runners r1
+        JOIN runners r2 ON 
+          r1.id < r2.id AND
+          LOWER(r1.first_name) = LOWER(r2.first_name) AND
+          LOWER(r1.last_name) = LOWER(r2.last_name)
+        WHERE NOT EXISTS (
+          SELECT 1 FROM duplicate_candidates dc 
+          WHERE dc.runner_id_1 = r1.id 
+            AND dc.runner_id_2 = r2.id 
+            AND dc.action = 'keep_both'
+        )
+        
+        UNION
+        
+        SELECT 
+          r1.id as runner_id_1,
+          r2.id as runner_id_2,
+          90.0 as similarity_score,
+          'Same last name, similar first name, same birth year' as match_reason,
+          0 as reviewed,
+          NULL as id,
+          NULL as action
+        FROM runners r1
+        JOIN runners r2 ON 
+          r1.id < r2.id AND
+          r1.last_name = r2.last_name AND
+          r1.birth_year = r2.birth_year AND
+          r1.birth_year IS NOT NULL AND
+          ABS(LENGTH(r1.first_name) - LENGTH(r2.first_name)) <= 2
+        WHERE NOT EXISTS (
+          SELECT 1 FROM duplicate_candidates dc 
+          WHERE dc.runner_id_1 = r1.id 
+            AND dc.runner_id_2 = r2.id 
+            AND dc.action = 'keep_both'
+        )
+      ) duplicates
+      WHERE similarity_score >= ?
       ORDER BY similarity_score DESC
-    `);
+    `, [threshold]);
 
     if (result.length === 0) return [];
 
     return this.resultToObjects(result[0]) as DuplicateCandidate[];
+  }
+
+  /**
+   * Mark duplicate pair as unique runners (ignore)
+   */
+  markDuplicateAsUnique(runnerId1: string, runnerId2: string): void {
+    this.ensureInitialized();
+
+    // Ensure runner_id_1 < runner_id_2 for consistency
+    const [id1, id2] = runnerId1 < runnerId2 ? [runnerId1, runnerId2] : [runnerId2, runnerId1];
+
+    try {
+      this.db!.run(
+        `INSERT OR REPLACE INTO duplicate_candidates 
+         (runner_id_1, runner_id_2, similarity_score, match_reason, reviewed, action) 
+         VALUES (?, ?, 0, 'Manually marked as unique', 1, 'keep_both')`,
+        [id1, id2]
+      );
+      this.saveToLocalStorage();
+      console.log(`[SQLiteDB] Marked as unique: ${id1} <-> ${id2}`);
+    } catch (error) {
+      console.error('[SQLiteDB] Failed to mark duplicate as unique:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Find potential club misspellings using Levenshtein distance
+   */
+  findClubMisspellings(threshold: number = 2): Array<{
+    club1: string;
+    club2: string;
+    distance: number;
+    count1: number;
+    count2: number;
+  }> {
+    this.ensureInitialized();
+
+    const clubs = this.getAllClubs();
+    const misspellings: Array<{
+      club1: string;
+      club2: string;
+      distance: number;
+      count1: number;
+      count2: number;
+    }> = [];
+
+    // Compare each pair of clubs
+    for (let i = 0; i < clubs.length; i++) {
+      for (let j = i + 1; j < clubs.length; j++) {
+        const club1 = clubs[i];
+        const club2 = clubs[j];
+        
+        // Skip if either is Unknown
+        if (club1.name === 'Unknown' || club2.name === 'Unknown') continue;
+        
+        const distance = this.levenshteinDistance(
+          club1.name.toLowerCase(),
+          club2.name.toLowerCase()
+        );
+        
+        // For short club names (3-4 chars), be more strict
+        const maxLen = Math.max(club1.name.length, club2.name.length);
+        const adjustedThreshold = maxLen <= 4 ? 1 : threshold;
+        
+        if (distance <= adjustedThreshold && distance > 0) {
+          misspellings.push({
+            club1: club1.name,
+            club2: club2.name,
+            distance,
+            count1: club1.runner_count || 0,
+            count2: club2.runner_count || 0,
+          });
+        }
+      }
+    }
+
+    // Sort by distance (closest matches first), then by total runner count
+    misspellings.sort((a, b) => {
+      if (a.distance !== b.distance) return a.distance - b.distance;
+      return (b.count1 + b.count2) - (a.count1 + a.count2);
+    });
+
+    return misspellings;
+  }
+
+  /**
+   * Calculate Levenshtein distance between two strings
+   */
+  private levenshteinDistance(str1: string, str2: string): number {
+    const len1 = str1.length;
+    const len2 = str2.length;
+    const matrix: number[][] = [];
+
+    for (let i = 0; i <= len1; i++) {
+      matrix[i] = [i];
+    }
+
+    for (let j = 0; j <= len2; j++) {
+      matrix[0][j] = j;
+    }
+
+    for (let i = 1; i <= len1; i++) {
+      for (let j = 1; j <= len2; j++) {
+        if (str1[i - 1] === str2[j - 1]) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1, // substitution
+            matrix[i][j - 1] + 1,     // insertion
+            matrix[i - 1][j] + 1      // deletion
+          );
+        }
+      }
+    }
+
+    return matrix[len1][len2];
   }
 
   /**

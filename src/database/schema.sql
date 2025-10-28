@@ -151,14 +151,12 @@ SELECT
     club,
     birth_year,
     sex,
+    card_number,
     CASE
         WHEN birth_year IS NULL THEN 'Missing birth year'
         WHEN birth_year < 1920 THEN 'Birth year too old'
         WHEN birth_year > strftime('%Y', 'now') THEN 'Birth year in future'
         WHEN sex IS NULL THEN 'Missing gender'
-        WHEN club IS NULL OR club = 'Unknown' THEN 'Missing club'
-        WHEN length(first_name) <= 1 THEN 'First name too short'
-        WHEN length(last_name) <= 1 THEN 'Last name too short'
         ELSE 'Unknown issue'
     END as issue_type
 FROM runners_with_clubs
@@ -166,8 +164,4 @@ WHERE
     birth_year IS NULL 
     OR birth_year < 1920 
     OR birth_year > strftime('%Y', 'now')
-    OR sex IS NULL
-    OR club IS NULL 
-    OR club = 'Unknown'
-    OR length(first_name) <= 1
-    OR length(last_name) <= 1;
+    OR sex IS NULL;

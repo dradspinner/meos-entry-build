@@ -56,10 +56,14 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
       if (entry.classId && classes.length > 0) {
         const classExists = classes.find(c => c.id.toString() === entry.classId);
         if (!classExists && entry.className) {
-          // Try to find by name
+          // Try to find by name (case-insensitive)
           const classByName = classes.find(c => c.name.toLowerCase() === entry.className.toLowerCase());
           if (classByName) {
             classIdToUse = classByName.id.toString();
+          } else {
+            // Add the missing class to the list so it can be displayed
+            console.log(`[EntryEditModal] Class "${entry.className}" (ID: ${entry.classId}) not found in loaded classes, adding temporarily`);
+            setClasses(prev => [...prev, { id: parseInt(entry.classId) || 0, name: entry.className }]);
           }
         }
       }

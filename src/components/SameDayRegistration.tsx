@@ -80,6 +80,8 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
   const [existingSearchResults, setExistingSearchResults] = useState<LocalEntry[]>([]);
   const [additionalNewClasses, setAdditionalNewClasses] = useState<string[]>([]); // For new entries with multiple classes
   const [showAddNewClass, setShowAddNewClass] = useState(false);
+  const [clubOptions, setClubOptions] = useState<{ value: string }[]>([]);
+  const [isNewClub, setIsNewClub] = useState(false);
 
   // Load available classes
   useEffect(() => {
@@ -221,6 +223,44 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
     } else {
       setCardNumberOptions([]);
     }
+  };
+
+  const handleClubSearch = async (searchText: string) => {
+    if (searchText.length >= 1) {
+      try {
+        await sqliteRunnerDB.initialize();
+        const allClubs = sqliteRunnerDB.getAllClubs();
+        const filtered = allClubs
+          .filter(club => 
+            club.name.toLowerCase().includes(searchText.toLowerCase()) &&
+            club.name !== 'Unknown'
+          )
+          .slice(0, 15)
+          .map(club => ({ value: club.name }));
+        setClubOptions(filtered);
+        
+        // Check if the current value matches an existing club
+        const exactMatch = allClubs.find(
+          club => club.name.toLowerCase() === searchText.toLowerCase()
+        );
+        setIsNewClub(!exactMatch);
+      } catch (error) {
+        console.error('Club search error:', error);
+      }
+    } else {
+      setClubOptions([]);
+      setIsNewClub(false);
+    }
+  };
+
+  const handleClubSelect = (value: string) => {
+    // When selecting from dropdown, it's an existing club
+    setIsNewClub(false);
+  };
+
+  const handleClubChange = (value: string) => {
+    // Re-check on manual change
+    handleClubSearch(value);
   };
 
   const clearFoundRunner = () => {
@@ -504,6 +544,8 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
     setExistingSearchResults([]);
     setAdditionalNewClasses([]);
     setShowAddNewClass(false);
+    setClubOptions([]);
+    setIsNewClub(false);
     onClose();
   };
   
@@ -846,8 +888,18 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
               label="Club"
               name="club"
               rules={[{ required: true, message: 'Please enter club name' }]}
+              validateStatus={isNewClub ? 'warning' : undefined}
+              help={isNewClub ? '⚠️ Warning: This will create a new club' : undefined}
             >
-              <Input placeholder="Enter club name" />
+              <AutoComplete
+                options={clubOptions}
+                onSearch={handleClubSearch}
+                onSelect={handleClubSelect}
+                onChange={handleClubChange}
+                placeholder="Enter club name (auto-complete from database)"
+                style={{ width: '100%' }}
+                filterOption={false}
+              />
             </Form.Item>
           </Col>
           <Col span={12}>

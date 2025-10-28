@@ -36,6 +36,8 @@ import {
   ArrowLeftOutlined,
   SyncOutlined,
   UploadOutlined,
+  CloseCircleOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { sqliteRunnerDB, RunnerRecord, ClubRecord, DuplicateCandidate } from '../services/sqliteRunnerDatabaseService';
 import { runnerDatabaseMigration } from '../services/runnerDatabaseMigration';
@@ -58,14 +60,23 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
   const [clubs, setClubs] = useState<ClubRecord[]>([]);
   const [duplicates, setDuplicates] = useState<DuplicateCandidate[]>([]);
   const [dataQualityIssues, setDataQualityIssues] = useState<RunnerRecord[]>([]);
+  const [clubMisspellings, setClubMisspellings] = useState<Array<{
+    club1: string;
+    club2: string;
+    distance: number;
+    count1: number;
+    count2: number;
+  }>>([]);
   const [selectedRunners, setSelectedRunners] = useState<Set<string>>(new Set());
   const [clubFilter, setClubFilter] = useState<string>('all');
   const [searchText, setSearchText] = useState('');
   const [activeTab, setActiveTab] = useState('duplicates');
-  const [duplicateThreshold, setDuplicateThreshold] = useState(85);
+  const [duplicateThreshold, setDuplicateThreshold] = useState(95);
   const [stats, setStats] = useState({ totalRunners: 0, totalClubs: 0, lastUpdated: null as Date | null });
   const [clubAliases, setClubAliases] = useState<Array<{ alias: string; clubName: string; clubId: number }>>([]);
   const [selectedClubs, setSelectedClubs] = useState<Set<number>>(new Set());
+  const [editingRunner, setEditingRunner] = useState<RunnerRecord | null>(null);
+  const [editModalVisible, setEditModalVisible] = useState(false);
 
   // Initialize database and check for migration
   useEffect(() => {
@@ -130,13 +141,14 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
     setLoading(true);
     try {
       // Load all data from SQLite (fast!)
-      const [runnersData, clubsData, duplicatesData, qualityData, statsData, aliasData] = await Promise.all([
+      const [runnersData, clubsData, duplicatesData, qualityData, statsData, aliasData, misspellingsData] = await Promise.all([
         Promise.resolve(sqliteRunnerDB.getAllRunners()),
         Promise.resolve(sqliteRunnerDB.getAllClubs()),
         Promise.resolve(sqliteRunnerDB.findDuplicates(duplicateThreshold)),
         Promise.resolve(sqliteRunnerDB.getDataQualityIssues()),
         Promise.resolve(sqliteRunnerDB.getStats()),
-        Promise.resolve(sqliteRunnerDB.getClubAliases())
+        Promise.resolve(sqliteRunnerDB.getClubAliases()),
+        Promise.resolve(sqliteRunnerDB.findClubMisspellings())
       ]);
 
       setRunners(runnersData);
@@ -145,6 +157,7 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
       setDataQualityIssues(qualityData);
       setStats(statsData);
       setClubAliases(aliasData);
+      setClubMisspellings(misspellingsData);
 
       messageApi.success(`Loaded ${runnersData.length} runners, found ${duplicatesData.length} potential duplicates`);
     } catch (error) {
@@ -167,6 +180,22 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
       messageApi.error('Failed to refresh duplicates');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Ignore duplicate (mark as unique runners)
+  const handleIgnore = (duplicate: DuplicateCandidate) => {
+    try {
+      sqliteRunnerDB.markDuplicateAsUnique(duplicate.runner_id_1, duplicate.runner_id_2);
+      messageApi.success('Marked as unique runners - will not show as duplicate again');
+      
+      // Update local state without full reload
+      setDuplicates(prev => prev.filter(d => 
+        !(d.runner_id_1 === duplicate.runner_id_1 && d.runner_id_2 === duplicate.runner_id_2)
+      ));
+    } catch (error) {
+      console.error('[DatabaseCleanup] Ignore failed:', error);
+      messageApi.error('Failed to mark as unique');
     }
   };
 
@@ -221,6 +250,34 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
     });
   };
 
+  // Update runner field immediately (auto-save)
+  const handleUpdateRunnerField = (runnerId: string, field: 'birth_year' | 'sex', value: number | 'M' | 'F') => {
+    try {
+      const runner = dataQualityIssues.find(r => r.id === runnerId);
+      if (!runner) return;
+
+      // Update runner with new value
+      const updatedRunner = {
+        ...runner,
+        [field]: value,
+      };
+      
+      sqliteRunnerDB.upsertRunner(updatedRunner);
+      
+      // Update local state
+      setDataQualityIssues(prev => prev.map(r => r.id === runnerId ? updatedRunner : r));
+      
+      // Check if runner should be removed from quality issues list
+      setTimeout(() => {
+        const qualityData = sqliteRunnerDB.getDataQualityIssues();
+        setDataQualityIssues(qualityData);
+      }, 100);
+    } catch (error) {
+      console.error('[DatabaseCleanup] Update failed:', error);
+      messageApi.error('Failed to update runner');
+    }
+  };
+
   // Delete single runner
   const handleDeleteSingle = (runnerId: string) => {
     try {
@@ -235,6 +292,31 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
     } catch (error) {
       console.error('[DatabaseCleanup] Delete failed:', error);
       messageApi.error('Failed to delete runner');
+    }
+  };
+
+  // Edit runner
+  const handleEditRunner = (runner: RunnerRecord) => {
+    setEditingRunner({...runner});
+    setEditModalVisible(true);
+  };
+
+  // Save edited runner
+  const handleSaveEdit = () => {
+    if (!editingRunner) return;
+
+    try {
+      sqliteRunnerDB.upsertRunner(editingRunner);
+      messageApi.success('Runner updated successfully');
+      setEditModalVisible(false);
+      setEditingRunner(null);
+      
+      // Update local state
+      setRunners(prev => prev.map(r => r.id === editingRunner.id ? editingRunner : r));
+      loadAllData();
+    } catch (error) {
+      console.error('[DatabaseCleanup] Update failed:', error);
+      messageApi.error('Failed to update runner');
     }
   };
 
@@ -599,6 +681,13 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
           <Space onClick={(e) => e.stopPropagation()}>
             <Button 
               size="small" 
+              icon={<CloseCircleOutlined />}
+              onClick={() => handleIgnore(duplicate)}
+            >
+              Ignore
+            </Button>
+            <Button 
+              size="small" 
               icon={<MergeCellsOutlined />} 
               type="primary"
               onClick={() => handleMerge(duplicate)}
@@ -649,6 +738,124 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
 
   return (
     <div>
+      {/* Edit Runner Modal */}
+      <Modal
+        title="Edit Runner"
+        open={editModalVisible}
+        onOk={handleSaveEdit}
+        onCancel={() => {
+          setEditModalVisible(false);
+          setEditingRunner(null);
+        }}
+        width={600}
+      >
+        {editingRunner && (
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <Row gutter={16}>
+              <Col span={12}>
+                <Text strong>First Name</Text>
+                <Input
+                  value={editingRunner.first_name}
+                  onChange={(e) => setEditingRunner({
+                    ...editingRunner,
+                    first_name: e.target.value
+                  })}
+                  placeholder="First name"
+                />
+              </Col>
+              <Col span={12}>
+                <Text strong>Last Name</Text>
+                <Input
+                  value={editingRunner.last_name}
+                  onChange={(e) => setEditingRunner({
+                    ...editingRunner,
+                    last_name: e.target.value
+                  })}
+                  placeholder="Last name"
+                />
+              </Col>
+            </Row>
+            
+            <div>
+              <Text strong>Club</Text>
+              <Input
+                value={editingRunner.club}
+                onChange={(e) => setEditingRunner({ ...editingRunner, club: e.target.value })}
+                placeholder="Club name"
+              />
+            </div>
+
+            <Row gutter={16}>
+              <Col span={12}>
+                <Text strong>Birth Year</Text>
+                <Input
+                  type="number"
+                  value={editingRunner.birth_year || ''}
+                  onChange={(e) => setEditingRunner({ 
+                    ...editingRunner, 
+                    birth_year: e.target.value ? parseInt(e.target.value) : undefined 
+                  })}
+                  placeholder="YYYY"
+                />
+              </Col>
+              <Col span={12}>
+                <Text strong>Sex</Text>
+                <Select
+                  value={editingRunner.sex || undefined}
+                  onChange={(value) => setEditingRunner({ ...editingRunner, sex: value })}
+                  style={{ width: '100%' }}
+                  placeholder="Select sex"
+                  allowClear
+                >
+                  <Select.Option value="M">Male</Select.Option>
+                  <Select.Option value="F">Female</Select.Option>
+                </Select>
+              </Col>
+            </Row>
+
+            <div>
+              <Text strong>Email</Text>
+              <Input
+                type="email"
+                value={editingRunner.email || ''}
+                onChange={(e) => setEditingRunner({ ...editingRunner, email: e.target.value })}
+                placeholder="email@example.com"
+              />
+            </div>
+
+            <div>
+              <Text strong>Phone</Text>
+              <Input
+                value={editingRunner.phone || ''}
+                onChange={(e) => setEditingRunner({ ...editingRunner, phone: e.target.value })}
+                placeholder="Phone number"
+              />
+            </div>
+
+            <div>
+              <Text strong>Card Number</Text>
+              <Input
+                type="number"
+                value={editingRunner.card_number || ''}
+                onChange={(e) => setEditingRunner({ 
+                  ...editingRunner, 
+                  card_number: e.target.value ? parseInt(e.target.value) : undefined 
+                })}
+                placeholder="SI Card number"
+              />
+            </div>
+          </Space>
+        )}
+      </Modal>
+
+      <style>
+        {`
+          .missing-data-select .ant-select-selector {
+            background-color: #fff7e6 !important;
+            border-color: #ffa940 !important;
+          }
+        `}
+      </style>
       <Card>
         <Space direction="vertical" style={{ width: '100%' }} size="large">
           {/* Header */}
@@ -754,8 +961,6 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
                       >
                         <Select.Option value={95}>95%</Select.Option>
                         <Select.Option value={90}>90%</Select.Option>
-                        <Select.Option value={85}>85%</Select.Option>
-                        <Select.Option value={80}>80%</Select.Option>
                       </Select>
                       <Button onClick={refreshDuplicates} loading={loading}>
                         Refresh
@@ -780,9 +985,135 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
               </Space>
             </TabPane>
 
+            {/* Club Misspellings Tab */}
+            <TabPane 
+              tab={<span><Badge count={clubMisspellings.length} offset={[10, 0]}><TeamOutlined /> Club Cleanup</Badge></span>} 
+              key="club-cleanup"
+            >
+              <Space direction="vertical" style={{ width: '100%' }} size="large">
+                <Alert
+                  message="Advanced Club Cleanup"
+                  description="This tool uses fuzzy matching to detect potential club name misspellings. For 3-4 letter club names, only 1-character differences are shown for accuracy."
+                  type="info"
+                  showIcon
+                />
+
+                {clubMisspellings.length > 0 ? (
+                  <Table
+                    dataSource={clubMisspellings}
+                    rowKey={(record) => `${record.club1}_${record.club2}`}
+                    size="small"
+                    pagination={{ pageSize: 20 }}
+                    columns={[
+                      { 
+                        title: 'Club 1', 
+                        dataIndex: 'club1',
+                        render: (name: string, record) => (
+                          <Space direction="vertical" size="small">
+                            <Text strong>{name}</Text>
+                            <Text type="secondary">{record.count1} runners</Text>
+                          </Space>
+                        )
+                      },
+                      { 
+                        title: 'Club 2', 
+                        dataIndex: 'club2',
+                        render: (name: string, record) => (
+                          <Space direction="vertical" size="small">
+                            <Text strong>{name}</Text>
+                            <Text type="secondary">{record.count2} runners</Text>
+                          </Space>
+                        )
+                      },
+                      { 
+                        title: 'Difference', 
+                        dataIndex: 'distance',
+                        render: (distance: number) => (
+                          <Tag color={distance === 1 ? 'red' : 'orange'}>
+                            {distance} character{distance !== 1 ? 's' : ''}
+                          </Tag>
+                        ),
+                        sorter: (a, b) => a.distance - b.distance,
+                      },
+                      {
+                        title: 'Actions',
+                        render: (_, record) => {
+                          const keepClub = record.count1 >= record.count2 ? record.club1 : record.club2;
+                          const mergeClub = record.count1 >= record.count2 ? record.club2 : record.club1;
+                          
+                          return (
+                            <Space>
+                              <Button 
+                                size="small" 
+                                icon={<MergeCellsOutlined />}
+                                onClick={() => {
+                                  Modal.confirm({
+                                    title: 'Merge Clubs?',
+                                    content: (
+                                      <div>
+                                        <Paragraph>
+                                          Merge <strong>{mergeClub}</strong> into <strong>{keepClub}</strong>?
+                                        </Paragraph>
+                                        <Paragraph type="secondary">
+                                          All runners from {mergeClub} will be moved to {keepClub}.
+                                        </Paragraph>
+                                      </div>
+                                    ),
+                                    okText: 'Merge',
+                                    okType: 'primary',
+                                    onOk: () => {
+                                      try {
+                                        const club1Data = clubs.find(c => c.name === keepClub);
+                                        const club2Data = clubs.find(c => c.name === mergeClub);
+                                        
+                                        if (club1Data && club2Data) {
+                                          sqliteRunnerDB.mergeClubs(club2Data.id, club1Data.id);
+                                          messageApi.success(`Merged ${mergeClub} into ${keepClub}`);
+                                          loadAllData();
+                                        }
+                                      } catch (error) {
+                                        console.error('[ClubCleanup] Merge failed:', error);
+                                        messageApi.error('Failed to merge clubs');
+                                      }
+                                    }
+                                  });
+                                }}
+                              >
+                                Merge
+                              </Button>
+                              <Button 
+                                size="small"
+                                onClick={() => {
+                                  // Remove from list (mark as reviewed)
+                                  setClubMisspellings(prev => prev.filter(m => 
+                                    !(m.club1 === record.club1 && m.club2 === record.club2)
+                                  ));
+                                  messageApi.success('Marked as not a misspelling');
+                                }}
+                              >
+                                Ignore
+                              </Button>
+                            </Space>
+                          );
+                        },
+                      },
+                    ]}
+                  />
+                ) : (
+                  <Alert
+                    message="No Potential Misspellings Found"
+                    description="All club names appear to be distinct."
+                    type="success"
+                    icon={<CheckCircleOutlined />}
+                    showIcon
+                  />
+                )}
+              </Space>
+            </TabPane>
+
             {/* Clubs Tab */}
             <TabPane 
-              tab={<span><TeamOutlined /> Clubs ({clubs.length})</span>} 
+              tab={<span><TeamOutlined /> All Clubs ({clubs.length})</span>} 
               key="clubs"
             >
               <Space direction="vertical" style={{ width: '100%' }} size="large">
@@ -923,14 +1254,21 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
                     { title: 'Name', render: (_, r: RunnerRecord) => <Text strong>{r.first_name} {r.last_name}</Text> },
                     { title: 'Club', dataIndex: 'club' },
                     { title: 'YB', dataIndex: 'birth_year', render: (v) => v || '-' },
+                    { title: 'Email', dataIndex: 'email', render: (v) => v || '-' },
+                    { title: 'Phone', dataIndex: 'phone', render: (v) => v || '-' },
                     { title: 'Card', dataIndex: 'card_number', render: (v) => v || '-' },
                     { title: 'Used', dataIndex: 'times_used', render: (v) => v || 0 },
                     {
                       title: 'Action',
                       render: (_, r: RunnerRecord) => (
-                        <Button size="small" icon={<DeleteOutlined />} danger onClick={() => handleDeleteSingle(r.id)}>
-                          Delete
-                        </Button>
+                        <Space size="small">
+                          <Button size="small" icon={<EditOutlined />} onClick={() => handleEditRunner(r)}>
+                            Edit
+                          </Button>
+                          <Button size="small" icon={<DeleteOutlined />} danger onClick={() => handleDeleteSingle(r.id)}>
+                            Delete
+                          </Button>
+                        </Space>
                       ),
                     },
                   ]}
@@ -949,12 +1287,70 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
                     dataSource={dataQualityIssues}
                     rowKey="id"
                     size="small"
-                    pagination={{ pageSize: 20 }}
+                    scroll={{ y: 600 }}
+                    pagination={{ pageSize: 100, showSizeChanger: true, showTotal: (total) => `Total ${total} items` }}
                     columns={[
-                      { title: 'Name', render: (_, r: RunnerRecord) => <Text strong>{r.first_name} {r.last_name}</Text> },
+                      { 
+                        title: 'First Name', 
+                        dataIndex: 'first_name',
+                        sorter: (a, b) => a.first_name.localeCompare(b.first_name)
+                      },
+                      { 
+                        title: 'Last Name', 
+                        dataIndex: 'last_name',
+                        sorter: (a, b) => a.last_name.localeCompare(b.last_name),
+                        defaultSortOrder: 'ascend' as const
+                      },
                       { title: 'Club', dataIndex: 'club' },
-                      { title: 'YB', dataIndex: 'birth_year', render: (v) => v || <Tag color="orange">Missing</Tag> },
-                      { title: 'Sex', dataIndex: 'sex', render: (v) => v || <Tag color="orange">Missing</Tag> },
+                      { 
+                        title: 'YB', 
+                        dataIndex: 'birth_year', 
+                        render: (v, r: RunnerRecord) => (
+                          <Input
+                            size="small"
+                            type="number"
+                            value={v || ''}
+                            placeholder="YYYY"
+                            style={{ 
+                              width: 80, 
+                              backgroundColor: v ? undefined : '#fff7e6',
+                              borderColor: v ? undefined : '#ffa940'
+                            }}
+                            onBlur={(e) => {
+                              const year = parseInt(e.target.value);
+                              if (year && year !== v) {
+                                handleUpdateRunnerField(r.id, 'birth_year', year);
+                              }
+                            }}
+                            onPressEnter={(e) => {
+                              const year = parseInt(e.currentTarget.value);
+                              if (year && year !== v) {
+                                handleUpdateRunnerField(r.id, 'birth_year', year);
+                              }
+                            }}
+                          />
+                        )
+                      },
+                      { 
+                        title: 'Sex', 
+                        dataIndex: 'sex', 
+                        render: (v, r: RunnerRecord) => (
+                          <Select
+                            size="small"
+                            value={v || undefined}
+                            placeholder="M/F"
+                            style={{ 
+                              width: 60
+                            }}
+                            className={!v ? 'missing-data-select' : ''}
+                            onChange={(value) => handleUpdateRunnerField(r.id, 'sex', value)}
+                          >
+                            <Select.Option value="M">M</Select.Option>
+                            <Select.Option value="F">F</Select.Option>
+                          </Select>
+                        )
+                      },
+                      { title: 'Card #', dataIndex: 'card_number', render: (v) => v || '-' },
                       {
                         title: 'Action',
                         render: (_, r: RunnerRecord) => (
