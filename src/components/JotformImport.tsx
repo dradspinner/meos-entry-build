@@ -388,7 +388,20 @@ const JotformImport: React.FC = () => {
   };
 
   React.useEffect(() => { 
+    // Initialize SQLite database
+    const initDB = async () => {
+      try {
+        const { sqliteRunnerDB } = await import('../services/sqliteRunnerDatabaseService');
+        await sqliteRunnerDB.initialize();
+        console.log('[JotformImport] SQLite database initialized');
+      } catch (error) {
+        console.error('[JotformImport] Failed to initialize SQLite database:', error);
+      }
+    };
+    
+    initDB();
     checkMeos();
+    
     // Load last used directory on mount
     const dirName = localEntryService.getWorkingDirectoryName();
     if (dirName) {

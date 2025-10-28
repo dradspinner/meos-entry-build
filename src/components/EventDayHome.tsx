@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { Card, Row, Col, Button, Typography, Statistic, Table, Input, Tag, Space, Badge, message, Alert, Modal } from 'antd';
-import { CheckCircleOutlined, UserAddOutlined, DatabaseOutlined, ArrowLeftOutlined, UsbOutlined, EditOutlined, IdcardOutlined, LoginOutlined, ReloadOutlined, SyncOutlined, DeleteOutlined, TrophyOutlined } from '@ant-design/icons';
-import RunnerDatabaseManager from './RunnerDatabaseManager';
-import { localEntryService, type LocalEntry } from '../services/localEntryService';
-import { localRunnerService } from '../services/localRunnerService';
+import { Card, Row, Col, Button, Typography, Statistic, Table, Input, Tag, Space, Badge, message, Alert, Modal, Dropdown } from 'antd';
+import { CheckCircleOutlined, UserAddOutlined, DatabaseOutlined, ArrowLeftOutlined, UsbOutlined, EditOutlined, IdcardOutlined, LoginOutlined, ReloadOutlined, SyncOutlined, DeleteOutlined, TrophyOutlined, HomeOutlined } from '@ant-design/icons';
+import RunnerLookupSQLite from './RunnerLookupSQLite';
+import { localEntryService, type LocalEntry, type ClassRegistration } from '../services/localEntryService';
 import { eventMetaService } from '../services/eventMetaService';
 import SameDayRegistration from './SameDayRegistration';
 import EntryEditModal from './EntryEditModal';
@@ -101,8 +100,6 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
           setSelected(match);
           setEditOpen(true);
           message.success(`Card ${cnum} → ${match.name.first} ${match.name.last}`);
-        } else {
-          message.info(`Card ${cnum} scanned. Select an entry and click Assign Last Card.`);
         }
       }
     };
@@ -139,8 +136,8 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
 
   const totalEntries = entries.length;
   const checkedIn = entries.filter(e => e.status === 'checked-in').length;
-  const pending = totalEntries - checkedIn;
   const needsRental = entries.filter(e => e.issues?.needsRentalCard).length;
+  const pending = entries.filter(e => e.status === 'pending' && !e.issues?.needsRentalCard).length;
   
   // Get event metadata from MeOS API or fallback to stored/default
   const [meta, setMeta] = React.useState(eventMetaService.get());
@@ -188,11 +185,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
   };
 
 
-  const refreshRunnerDatabase = () => {
-    localRunnerService.refreshFromStorage();
-    const stats = localRunnerService.getStats();
-    message.success(`Runner database refreshed: ${stats.total} runners loaded`);
-  };
+  // SQLite database is now used and auto-initializes on demand
 
   const handleOpenLiveResults = () => {
     // Open live results in a new window
@@ -204,14 +197,31 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100%', overflowX: 'hidden' }}>
       <div style={{ padding: '16px 16px 0 16px' }}>
-      <Row justify="space-between" align="middle" style={{ marginBottom: 4 }}>
+      <Row justify="space-between" align="middle" style={{ marginBottom: 12 }}>
         <Col>
-          <Title level={2} style={{ marginBottom: 0, fontSize: '20px' }}>
+          <Title level={2} style={{ marginBottom: 0, fontSize: '24px', fontWeight: 700, color: '#000' }}>
             Event Day Dashboard - {meta?.name || 'DVOA Event'} - {meta?.date || new Date().toISOString().split('T')[0]}
           </Title>
         </Col>
         <Col>
           <Space>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'main-dashboard',
+                    icon: <HomeOutlined />,
+                    label: 'Main Dashboard',
+                    onClick: onBackToMain,
+                  },
+                ],
+              }}
+              placement="bottomLeft"
+            >
+              <Button size="small">
+                Event
+              </Button>
+            </Dropdown>
             <Button 
               icon={<TrophyOutlined />} 
               type="primary" 
@@ -227,7 +237,6 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
                 Back to Operations
               </Button>
             )}
-            {onBackToMain && <Button size="small" onClick={onBackToMain}>Back to Main</Button>}
           </Space>
         </Col>
       </Row>
@@ -242,31 +251,70 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
               text={meosConnected === null ? 'MeOS API: Unknown' : meosConnected ? 'MeOS API: Connected' : 'MeOS API: Disconnected'}
             />
             <Button size="small" loading={checkingMeos} onClick={checkMeos}>Refresh</Button>
-            <Button size="small" icon={<SyncOutlined />} onClick={refreshRunnerDatabase} title="Refresh runner database from localStorage">Refresh Runners ({localRunnerService.getStats().total})</Button>
-            <Button size="small" icon={<DatabaseOutlined />} onClick={()=>setRunnerDbOpen(true)} title="Open Runner Database">Runner Database</Button>
+            <Button size="small" icon={<DatabaseOutlined />} onClick={()=>setRunnerDbOpen(true)} title="Open SQLite Runner Database">Runner Database</Button>
           </Space>
         </Col>
       </Row>
 
-      <Row gutter={[8, 8]} style={{ marginTop: 12, marginBottom: 12 }}>
+      <Row gutter={[12, 12]} style={{ marginTop: 16, marginBottom: 16 }}>
         <Col xs={12} sm={4}>
-          <Card size="small" hoverable onClick={() => setFilterKey('all')} bodyStyle={{ padding: '12px' }}>
-            <Statistic title="Total Entries" value={totalEntries} valueStyle={{ fontSize: '20px' }} />
+          <Card 
+            size="small" 
+            hoverable 
+            onClick={() => setFilterKey('all')} 
+            bodyStyle={{ padding: '16px' }}
+            style={{ border: filterKey === 'all' ? '2px solid #1890ff' : '1px solid #d9d9d9' }}
+          >
+            <Statistic 
+              title={<span style={{ fontSize: '15px', fontWeight: 600, color: '#000' }}>Total Entries</span>} 
+              value={totalEntries} 
+              valueStyle={{ fontSize: '28px', fontWeight: 700, color: '#000' }} 
+            />
           </Card>
         </Col>
         <Col xs={12} sm={4}>
-          <Card size="small" hoverable onClick={() => setFilterKey('checked-in')} bodyStyle={{ padding: '12px' }}>
-            <Statistic title="Checked In" value={checkedIn} valueStyle={{ fontSize: '20px' }} />
+          <Card 
+            size="small" 
+            hoverable 
+            onClick={() => setFilterKey('checked-in')} 
+            bodyStyle={{ padding: '16px' }}
+            style={{ border: filterKey === 'checked-in' ? '2px solid #52c41a' : '1px solid #d9d9d9' }}
+          >
+            <Statistic 
+              title={<span style={{ fontSize: '15px', fontWeight: 600, color: '#000' }}>Checked In</span>} 
+              value={checkedIn} 
+              valueStyle={{ fontSize: '28px', fontWeight: 700, color: '#52c41a' }} 
+            />
           </Card>
         </Col>
         <Col xs={12} sm={4}>
-          <Card size="small" hoverable onClick={() => setFilterKey('pending')} bodyStyle={{ padding: '12px' }}>
-            <Statistic title="Pending" value={pending} valueStyle={{ fontSize: '20px' }} />
+          <Card 
+            size="small" 
+            hoverable 
+            onClick={() => setFilterKey('pending')} 
+            bodyStyle={{ padding: '16px' }}
+            style={{ border: filterKey === 'pending' ? '2px solid #faad14' : '1px solid #d9d9d9' }}
+          >
+            <Statistic 
+              title={<span style={{ fontSize: '15px', fontWeight: 600, color: '#000' }}>Pending</span>} 
+              value={pending} 
+              valueStyle={{ fontSize: '28px', fontWeight: 700, color: '#faad14' }} 
+            />
           </Card>
         </Col>
         <Col xs={12} sm={4}>
-          <Card size="small" hoverable onClick={() => setFilterKey('needsRental')} bodyStyle={{ padding: '12px' }}>
-            <Statistic title="Needs Rental" value={needsRental} valueStyle={{ fontSize: '20px' }} />
+          <Card 
+            size="small" 
+            hoverable 
+            onClick={() => setFilterKey('needsRental')} 
+            bodyStyle={{ padding: '16px' }}
+            style={{ border: filterKey === 'needsRental' ? '2px solid #ff4d4f' : '1px solid #d9d9d9' }}
+          >
+            <Statistic 
+              title={<span style={{ fontSize: '15px', fontWeight: 600, color: '#000' }}>Needs Rental</span>} 
+              value={needsRental} 
+              valueStyle={{ fontSize: '28px', fontWeight: 700, color: '#ff4d4f' }} 
+            />
           </Card>
         </Col>
         <Col xs={24} sm={8}>
@@ -283,24 +331,30 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
         </Col>
       </Row>
 
-      <Card size="small" bodyStyle={{ padding: '8px 16px' }} style={{ marginTop: 8, marginBottom: 8 }}>
+      <Card size="small" bodyStyle={{ padding: '12px 16px' }} style={{ marginTop: 12, marginBottom: 12, borderWidth: 2 }}>
         <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-          <Space size="small">
-            <Button type="primary" size="small" icon={<UserAddOutlined />} onClick={() => setShowSameDay(true)}>
+          <Space size="middle">
+            <Button 
+              type="primary" 
+              size="large" 
+              icon={<UserAddOutlined />} 
+              onClick={() => setShowSameDay(true)}
+              style={{ fontWeight: 600, minHeight: 44 }}
+            >
               New Registration
             </Button>
             <Input.Search 
-              size="small"
+              size="large"
               allowClear 
               placeholder="Search name, club, or card"
               value={filter}
               onChange={(e)=>setFilter(e.target.value)}
-              style={{ width: 320 }}
+              style={{ width: 360, fontSize: '15px', fontWeight: 500 }}
             />
-            <Button size="small" icon={<ReloadOutlined />} onClick={refresh}>Refresh</Button>
+            <Button size="large" icon={<ReloadOutlined />} onClick={refresh} style={{ fontWeight: 600 }}>Refresh</Button>
           </Space>
-          <Space size="small">
-            <Button size="small" loading={verifying} onClick={async ()=>{
+          <Space size="middle">
+            <Button size="large" loading={verifying} style={{ fontWeight: 600 }} onClick={async ()=>{
               try {
                 setVerifying(true);
                 const list = await meosApi.getAllEntries();
@@ -325,13 +379,41 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 16px 16px 16px' }}>
-      <Table size="small" className="table-compact" sticky scroll={{ x: 'max-content' }}
+      <Table 
+        size="small" 
+        sticky 
+        scroll={{ x: 'max-content' }}
+        style={{ fontSize: '14px' }}
         key={entries.length}
-        rowKey={(r: LocalEntry)=>r.id}
-        dataSource={entries.filter(e => {
-          // Quick filter by metric
-          if (filterKey === 'pending' && e.status !== 'pending') return false;
-          if (filterKey === 'checked-in' && e.status !== 'checked-in') return false;
+        rowKey={(r: any)=>r.rowId}
+        rowClassName={(row: any) => {
+          // Alternate shading per runner (not per row)
+          // Find the entry's index in the original entries list
+          const entryIndex = entries.findIndex(e => e.id === row.entry.id);
+          return entryIndex % 2 === 0 ? 'row-even' : 'row-odd';
+        }}
+        dataSource={(() => {
+          // Transform entries into rows - one row per class registration
+          const rows: any[] = [];
+          entries.forEach(entry => {
+            const allClasses = localEntryService.getEntryClasses(entry);
+            allClasses.forEach((classReg, idx) => {
+              rows.push({
+                rowId: `${entry.id}_${classReg.classId}`,
+                entry: entry,
+                classReg: classReg,
+                isPrimary: idx === 0,
+                totalClasses: allClasses.length
+              });
+            });
+          });
+          return rows;
+        })().filter(row => {
+          const e = row.entry;
+          const classReg = row.classReg;
+          // Quick filter by metric - filter by the specific class registration status
+          if (filterKey === 'pending' && (classReg.status !== 'pending' || e.issues?.needsRentalCard)) return false;
+          if (filterKey === 'checked-in' && classReg.status !== 'checked-in') return false;
           if (filterKey === 'needsRental' && !e.issues?.needsRentalCard) return false;
           const q = filter.trim().toLowerCase();
           if (!q) return true;
@@ -339,7 +421,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
             `${e.name.first} ${e.name.last}`.toLowerCase().includes(q) ||
             e.club.toLowerCase().includes(q) ||
             e.cardNumber.toLowerCase().includes(q) ||
-            e.className?.toLowerCase().includes(q)
+            classReg.className?.toLowerCase().includes(q)
           );
         })}
         pagination={false}
@@ -347,41 +429,69 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
         columns={[
           { 
             title: 'First Name', 
-            dataIndex: ['name','first'], 
             key: 'first', 
-            sorter: (a: LocalEntry, b: LocalEntry) => (a.name.first||'').localeCompare(b.name.first||''), 
-            render: (v: string, record: LocalEntry) => {
-              const isGroup = parseInt(record.nationality || '0') > 1;
-              return isGroup ? <span>👥 {v}</span> : v;
+            sorter: (a: any, b: any) => (a.entry.name.first||'').localeCompare(b.entry.name.first||''), 
+            render: (_: any, row: any) => {
+              const e = row.entry;
+              const isGroup = parseInt(e.nationality || '0') > 1;
+              return <span style={{ fontSize: '13px', fontWeight: 500 }}>{isGroup ? `👥 ${e.name.first}` : e.name.first}</span>;
             }
           },
-          { title: 'Last Name', dataIndex: ['name','last'], key: 'last', sorter: (a: LocalEntry, b: LocalEntry) => (a.name.last||'').localeCompare(b.name.last||'') },
-          { title: 'Club', dataIndex: 'club', key: 'club', sorter: (a: LocalEntry, b: LocalEntry) => a.club.localeCompare(b.club) },
-          { title: 'Class', dataIndex: 'className', key: 'className', sorter: (a: LocalEntry, b: LocalEntry) => (a.className||'').localeCompare(b.className||'') },
           { 
-            title: 'Card', 
-            dataIndex: 'cardNumber', 
-            key: 'cardNumber', 
-            sorter: (a: LocalEntry, b: LocalEntry) => (parseInt(a.cardNumber||'0')||0) - (parseInt(b.cardNumber||'0')||0), 
-            render: (v: string, record: LocalEntry) => {
+            title: <span style={{ fontWeight: 700, fontSize: '13px' }}>Last Name</span>, 
+            key: 'last', 
+            sorter: (a: any, b: any) => (a.entry.name.last||'').localeCompare(b.entry.name.last||''), 
+            render: (_: any, row: any) => <span style={{ fontSize: '13px', fontWeight: 500 }}>{row.entry.name.last}</span>
+          },
+          { 
+            title: <span style={{ fontWeight: 700, fontSize: '13px' }}>Club</span>, 
+            key: 'club', 
+            sorter: (a: any, b: any) => a.entry.club.localeCompare(b.entry.club), 
+            render: (_: any, row: any) => <span style={{ fontSize: '13px', fontWeight: 500 }}>{row.entry.club}</span>
+          },
+          { 
+            title: <span style={{ fontWeight: 700, fontSize: '13px' }}>Class</span>, 
+            key: 'className', 
+            sorter: (a: any, b: any) => (a.classReg.className||'').localeCompare(b.classReg.className||''), 
+            render: (_: any, row: any) => <span style={{ fontSize: '13px', fontWeight: 600 }}>{row.classReg.className}</span>
+          },
+          { 
+            title: <span style={{ fontWeight: 700, fontSize: '13px' }}>Card</span>, 
+            key: 'cardNumber',
+            sorter: (a: any, b: any) => (parseInt(a.entry.cardNumber||'0')||0) - (parseInt(b.entry.cardNumber||'0')||0), 
+            render: (_: any, row: any) => {
+              const e = row.entry;
+              const v = e.cardNumber;
               const hasNumber = v && v !== '0';
               // Rental requests before check-in or assignment: show Hired with red shading
-              if (record.issues?.needsRentalCard && !hasNumber) {
+              if (e.issues?.needsRentalCard && !hasNumber) {
                 return <Tag style={{ border: '1px solid #ff4d4f', color: '#ff4d4f', backgroundColor: '#fff1f0' }}>Hired</Tag>;
               }
               // After assigning a rental card number: keep number with red outline and shading
-              if (record.isHiredCard && hasNumber) {
+              if (e.isHiredCard && hasNumber) {
                 return <Tag style={{ border: '1px solid #ff4d4f', color: '#ff4d4f', backgroundColor: '#fff1f0' }}>{v}</Tag>;
               }
               // Personal cards
               return hasNumber ? <Tag>{v}</Tag> : <Tag color="warning">None</Tag>;
             }
           },
-          { title: 'Status', key: 'status', sorter: (a: LocalEntry, b: LocalEntry) => a.status.localeCompare(b.status), render: (_: any, r: LocalEntry) => r.status === 'checked-in' ? <Tag color="green">Checked In</Tag> : <Tag>Pending</Tag> },
-          { title: 'MeOS', key: 'meos', render: (_:any, r: LocalEntry) => {
-              if (r.status !== 'checked-in') return <Tag>-</Tag>;
+          { 
+            title: <span style={{ fontWeight: 700, fontSize: '13px' }}>Status</span>, 
+            key: 'status', 
+            sorter: (a: any, b: any) => a.classReg.status.localeCompare(b.classReg.status), 
+            render: (_: any, row: any) => row.classReg.status === 'checked-in' 
+              ? <Tag color="green" style={{ fontSize: '12px', fontWeight: 600, padding: '2px 8px', margin: 0 }}>Checked In</Tag> 
+              : <Tag style={{ fontSize: '12px', fontWeight: 600, padding: '2px 8px', margin: 0 }}>Pending</Tag>
+          },
+          { 
+            title: <span style={{ fontWeight: 700, fontSize: '13px' }}>MeOS</span>, 
+            key: 'meos',
+            render: (_:any, row: any) => {
+              const classReg = row.classReg;
+              const e = row.entry;
+              if (classReg.status !== 'checked-in') return <Tag>-</Tag>;
               // Optimistic: recently submitted entries show as In MeOS until verified
-              if ((r as any).submittedToMeosAt) return <Tag color="green">Submitted</Tag>;
+              if (classReg.submittedToMeosAt) return <Tag color="green">Submitted</Tag>;
               if (!meosIndex) return <Button size="small" onClick={async ()=>{
                 try {
                   setVerifying(true);
@@ -397,77 +507,163 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
                   message.success('Verified in MeOS');
                 } finally { setVerifying(false); }
               }}>Verify</Button>;
-              const inMeos = (r.cardNumber && r.cardNumber !== '0' && meosIndex.byCard.has(String(r.cardNumber))) || meosIndex.byName.has(`${r.name.first.toLowerCase()} ${r.name.last.toLowerCase()}`);
+              const inMeos = (e.cardNumber && e.cardNumber !== '0' && meosIndex.byCard.has(String(e.cardNumber))) || meosIndex.byName.has(`${e.name.first.toLowerCase()} ${e.name.last.toLowerCase()}`);
               return inMeos ? <Tag color="green">In MeOS</Tag> : <Tag color="red">Missing</Tag>;
             }
           },
-          { title: 'Actions', key: 'actions', render: (_: any, r: LocalEntry) => (
-            <Space>
-              <Button 
-                size="small" 
-                icon={<EditOutlined />} 
-                onClick={()=>{setSelected(r); setEditOpen(true);}}
-                style={{ backgroundColor: '#f0f5ff', borderColor: '#adc6ff' }}
-              >
-                Edit
-              </Button>
-              <Button 
-                size="small" 
-                danger 
-                icon={<DeleteOutlined />} 
-                onClick={() => {
-                  Modal.confirm({
-                    title: `Delete ${r.name.first} ${r.name.last}?`,
-                    content: `This will permanently remove this entry from the system.`,
-                    okText: 'Delete',
-                    okType: 'danger',
-                    onOk: () => {
-                      const success = localEntryService.deleteEntry(r.id);
-                      if (success) {
-                        message.success(`Deleted ${r.name.first} ${r.name.last}`);
-                        refresh();
-                      } else {
-                        message.error('Failed to delete entry');
-                      }
-                    }
-                  });
-                }}
-                style={{ backgroundColor: '#fff1f0', borderColor: '#ffccc7' }}
-              >
-                Delete
-              </Button>
-              {r.status !== 'checked-in' ? (
-                <>
+          { 
+            title: <span style={{ fontWeight: 700, fontSize: '13px' }}>Actions</span>, 
+            key: 'actions',
+            render: (_: any, row: any) => {
+            const e = row.entry;
+            const classReg = row.classReg;
+            const isPrimary = row.isPrimary;
+            const totalClasses = row.totalClasses;
+            
+            return (
+              <Space size="small">
+                {/* Show Edit button only on the first row for this runner, placeholder on others */}
+                {isPrimary ? (
                   <Button 
                     size="small" 
-                    icon={<IdcardOutlined />} 
-                    onClick={()=>{
-                      if (lastCard) {
-                        const u = localEntryService.updateEntry(r.id, { cardNumber: lastCard, isHiredCard: true });
-                        if (u) { message.success(`Assigned card ${lastCard}`); refresh(); }
-                      } else {
-                        message.info('Scan a card, then click Assign Last Card');
-                      }
+                    icon={<EditOutlined />} 
+                    onClick={()=>{setSelected(e); setEditOpen(true);}}
+                    style={{ 
+                      backgroundColor: '#f0f5ff', 
+                      borderColor: '#adc6ff',
+                      fontWeight: 600,
+                      fontSize: '13px',
+                      width: '72px'
                     }}
-                    style={{ backgroundColor: '#f6ffed', borderColor: '#b7eb8f' }}
                   >
-                    Assign Last Card
+                    Edit
                   </Button>
-                  <Button size="small" type="primary" icon={<LoginOutlined />} onClick={()=>{
-                    // Open edit modal to confirm info before check-in
-                    setSelected(r);
-                    setEditOpen(true);
-                  }}>Check In</Button>
-                </>
-              ) : (
-                <Button size="small" danger onClick={()=>{
-                  // Uncheck-in: revert to pending
-                  const upd = localEntryService.updateEntry(r.id, { status: 'pending', checkedInAt: undefined, submittedToMeosAt: undefined });
-                  if (upd) { message.success('Entry set to pending'); refresh(); }
-                }}>Uncheck-In</Button>
-              )}
-            </Space>
-          )}
+                ) : (
+                  <div style={{ width: '72px', display: 'inline-block' }} />
+                )}
+                
+                {/* Delete button - deletes just this class or entire entry if only one class */}
+                <Button
+                  size="small" 
+                  danger 
+                  icon={<DeleteOutlined />}
+                  onClick={() => {
+                    const deleteMessage = totalClasses > 1 
+                      ? `Remove ${e.name.first} ${e.name.last} from ${classReg.className}?` 
+                      : `Delete ${e.name.first} ${e.name.last}?`;
+                    const deleteContent = totalClasses > 1
+                      ? `This will remove them from ${classReg.className} only. They will remain registered for their other class(es).`
+                      : `This will permanently remove this entry from the system.`;
+                    
+                    Modal.confirm({
+                      title: deleteMessage,
+                      content: deleteContent,
+                      okText: 'Delete',
+                      okType: 'danger',
+                      onOk: () => {
+                        // Check if this class is already checked in
+                        if (classReg.status === 'checked-in') {
+                          message.error(`Cannot delete ${classReg.className} - runner is already checked in. Uncheck-in first.`);
+                          return;
+                        }
+                        
+                        if (totalClasses > 1) {
+                          // Remove just this class registration
+                          if (classReg.classId === e.classId) {
+                            // Removing the primary class - promote an additional class to primary
+                            const additionalClasses = e.additionalClasses || [];
+                            if (additionalClasses.length > 0) {
+                              const newPrimary = additionalClasses[0];
+                              const remainingAdditional = additionalClasses.slice(1);
+                              
+                              const success = localEntryService.updateEntry(e.id, {
+                                classId: newPrimary.classId,
+                                className: newPrimary.className,
+                                fee: newPrimary.fee,
+                                status: newPrimary.status,
+                                checkedInAt: newPrimary.checkedInAt,
+                                submittedToMeosAt: newPrimary.submittedToMeosAt,
+                                additionalClasses: remainingAdditional
+                              });
+                              
+                              if (success) {
+                                message.success(`Removed ${e.name.first} ${e.name.last} from ${classReg.className}`);
+                                refresh();
+                              }
+                            }
+                          } else {
+                            // Removing an additional class
+                            const updated = e.additionalClasses?.filter(c => c.classId !== classReg.classId);
+                            const success = localEntryService.updateEntry(e.id, { additionalClasses: updated });
+                            if (success) {
+                              message.success(`Removed ${e.name.first} ${e.name.last} from ${classReg.className}`);
+                              refresh();
+                            }
+                          }
+                        } else {
+                          // Delete entire entry
+                          const success = localEntryService.deleteEntry(e.id);
+                          if (success) {
+                            message.success(`Deleted ${e.name.first} ${e.name.last}`);
+                            refresh();
+                          } else {
+                            message.error('Failed to delete entry');
+                          }
+                        }
+                      }
+                    });
+                  }}
+                  style={{ 
+                    backgroundColor: '#fff1f0', 
+                    borderColor: '#ffccc7',
+                    fontWeight: 600,
+                    fontSize: '13px'
+                  }}
+                >
+                  Delete
+                </Button>
+                
+                {/* Check In button - opens edit modal to confirm before checking in */}
+                {classReg.status !== 'checked-in' ? (
+                  <Button 
+                    size="small" 
+                    type="primary" 
+                    icon={<LoginOutlined />} 
+                    style={{ fontWeight: 600, fontSize: '13px' }}
+                    onClick={()=>{
+                      // Open edit modal to confirm information before checking in
+                      setSelected(e);
+                      setEditOpen(true);
+                    }}
+                  >
+                    Check In
+                  </Button>
+                ) : (
+                  <Button 
+                    size="small" 
+                    danger 
+                    style={{ fontWeight: 600, fontSize: '13px' }}
+                    onClick={()=>{
+                    // Uncheck-in: revert to pending for this class
+                    if (classReg.classId === e.classId) {
+                      // Primary class
+                      const upd = localEntryService.updateEntry(e.id, { status: 'pending', checkedInAt: undefined, submittedToMeosAt: undefined });
+                      if (upd) { message.success('Set to pending'); refresh(); }
+                    } else {
+                      // Additional class
+                      const updated = e.additionalClasses?.map(c => 
+                        c.classId === classReg.classId 
+                          ? { ...c, status: 'pending' as const, checkedInAt: undefined, submittedToMeosAt: undefined }
+                          : c
+                      );
+                      const upd = localEntryService.updateEntry(e.id, { additionalClasses: updated });
+                      if (upd) { message.success('Set to pending'); refresh(); }
+                    }
+                  }}>Uncheck-In</Button>
+                )}
+              </Space>
+            );
+          }}
         ]}
       />
       </div>
@@ -502,8 +698,8 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
         }}
       />
 
-      {/* Runner Database Manager */}
-      <RunnerDatabaseManager open={runnerDbOpen} onClose={()=>setRunnerDbOpen(false)} />
+      {/* Runner Database Lookup */}
+      <RunnerLookupSQLite open={runnerDbOpen} onClose={()=>setRunnerDbOpen(false)} />
 
     </div>
   );

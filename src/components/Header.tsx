@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Layout, Button, Modal, Typography, Space, Input, Alert } from 'antd';
-import { TrophyOutlined, CopyOutlined, CheckCircleOutlined, FolderOpenOutlined } from '@ant-design/icons';
+import { Layout, Button, Modal, Typography, Space, Input, Alert, Dropdown } from 'antd';
+import { TrophyOutlined, CopyOutlined, CheckCircleOutlined, FolderOpenOutlined, HomeOutlined } from '@ant-design/icons';
 import logoImage from '../assets/dvoa_logo.png';
 import { localEntryService } from '../services/localEntryService';
 
@@ -10,12 +10,13 @@ const { Header: AntHeader } = Layout;
 
 interface HeaderProps {
   title?: string;
+  onNavigateToMain?: () => void;
 }
 
 // Store window reference outside component to persist across renders
 let liveResultsWindow: Window | null = null;
 
-const Header: React.FC<HeaderProps> = ({ title = 'MeOS Event Management System' }) => {
+const Header: React.FC<HeaderProps> = ({ title = 'MeOS Event Management System', onNavigateToMain }) => {
   const [showPathModal, setShowPathModal] = useState(false);
 
   const handleOpenLiveResults = async () => {
@@ -93,6 +94,25 @@ const Header: React.FC<HeaderProps> = ({ title = 'MeOS Event Management System' 
         </h1>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        {onNavigateToMain && (
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'main-dashboard',
+                  icon: <HomeOutlined />,
+                  label: 'Main Dashboard',
+                  onClick: onNavigateToMain,
+                },
+              ],
+            }}
+            placement="bottomLeft"
+          >
+            <Button size="large">
+              Event
+            </Button>
+          </Dropdown>
+        )}
         <Button 
           icon={<TrophyOutlined />} 
           type="primary" 

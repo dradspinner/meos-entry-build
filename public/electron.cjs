@@ -536,10 +536,27 @@ function createMenuBar() {
       label: 'Tools',
       submenu: [
         {
+          label: 'SQL Runner Database Converter',
+          accelerator: 'CmdOrCtrl+Shift+C',
+          click: () => {
+            console.log('[Electron] Opening SQL Runner Database Converter...');
+            mainWindow.webContents.send('menu-open-sql-converter');
+          }
+        },
+        { type: 'separator' },
+        {
           label: 'Runner Database',
           click: () => {
             console.log('[Electron] Opening Runner Database window...');
             createDatabaseManagerWindow();
+          }
+        },
+        {
+          label: 'Database Cleanup',
+          accelerator: 'CmdOrCtrl+Shift+D',
+          click: () => {
+            console.log('[Electron] Opening Database Cleanup...');
+            mainWindow.webContents.send('menu-open-database-cleanup');
           }
         },
         { type: 'separator' },

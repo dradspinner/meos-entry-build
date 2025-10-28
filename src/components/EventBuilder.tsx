@@ -239,7 +239,7 @@ function EventBuilder({ onBack }: EventBuilderProps) {
     xml += `<CurrencySymbol>$</CurrencySymbol>\n`;
     xml += `<CurrencySeparator>.</CurrencySeparator>\n`;
     xml += `<CurrencyPreSymbol>1</CurrencyPreSymbol>\n`;
-    xml += `<Features>CL+CC+RF+RD</Features>\n`;
+    xml += `<Features>NW+RF</Features>\n`;
     xml += `<LongTimes>1</LongTimes>\n`;
     xml += `<PayModes>Cash|0</PayModes>\n`;
     xml += `<TransferFlags>3</TransferFlags>\n`;

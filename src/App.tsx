@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Layout, ConfigProvider } from 'antd';
-import { localRunnerService } from './services/localRunnerService';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import EventBuilder from './components/EventBuilder';
@@ -9,20 +8,16 @@ import EventDayHome from './components/EventDayHome';
 import DatabaseManager from './components/DatabaseManager';
 import LiveResultsDisplay from './components/LiveResultsDisplay';
 import ResultsExport from './components/ResultsExport';
+import Tools from './components/Tools';
+import DatabaseCleanupSQLite from './components/DatabaseCleanupSQLite';
 import './styles/professional.css';
 
-type CurrentView = 'dashboard' | 'eventBuilder' | 'eventDayOps' | 'eventDayDashboard' | 'databaseManager' | 'liveResults' | 'resultsExport';
+type CurrentView = 'dashboard' | 'eventBuilder' | 'eventDayOps' | 'eventDayDashboard' | 'databaseManager' | 'liveResults' | 'resultsExport' | 'tools' | 'databaseCleanup';
 
 function App() {
   const [currentView, setCurrentView] = useState<CurrentView>('dashboard');
 
-  // Initialize app and refresh runner database
-  useEffect(() => {
-    // Refresh runner database on app startup to ensure latest data
-    localRunnerService.refreshFromStorage();
-    const stats = localRunnerService.getStats();
-    console.log(`[App] Initial runner database refresh: ${stats.total} runners loaded`);
-  }, []);
+  // SQLite database is now initialized on-demand when accessed
 
   // Handle hash-based routing for separate windows
   useEffect(() => {
@@ -42,6 +37,45 @@ function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
+  // Handle Electron menu events
+  useEffect(() => {
+    // Listen for SQL Converter menu item
+    const handleMenuSqlConverter = () => {
+      console.log('[App] Opening SQL Converter from menu...');
+      setCurrentView('tools');
+    };
+
+    // Listen for Database Cleanup menu item
+    const handleMenuDatabaseCleanup = () => {
+      console.log('[App] Opening Database Cleanup from menu...');
+      setCurrentView('databaseCleanup');
+    };
+
+    // Check if we're in Electron environment
+    // Use electronAPI with proper TypeScript support
+    if (window.electronAPI) {
+      const cleanupSqlConverter = window.electronAPI.onMenuEvent('menu-open-sql-converter', handleMenuSqlConverter);
+      const cleanupDatabaseCleanup = window.electronAPI.onMenuEvent('menu-open-database-cleanup', handleMenuDatabaseCleanup);
+      
+      return () => {
+        cleanupSqlConverter();
+        cleanupDatabaseCleanup();
+      };
+    }
+    // Fallback to window.electron for backward compatibility (with type safety issues)
+    else if (window.electron && (window.electron as any).on) {
+      (window.electron as any).on('menu-open-sql-converter', handleMenuSqlConverter);
+      (window.electron as any).on('menu-open-database-cleanup', handleMenuDatabaseCleanup);
+      
+      return () => {
+        if ((window.electron as any).removeListener) {
+          (window.electron as any).removeListener('menu-open-sql-converter', handleMenuSqlConverter);
+          (window.electron as any).removeListener('menu-open-database-cleanup', handleMenuDatabaseCleanup);
+        }
+      };
+    }
+  }, []);
+
   const renderCurrentView = () => {
     switch (currentView) {
       case 'dashboard':
@@ -50,6 +84,8 @@ function App() {
             onNavigateToEventBuilder={() => setCurrentView('eventBuilder')}
             onNavigateToEventDayOps={() => setCurrentView('eventDayOps')}
             onNavigateToResultsExport={() => setCurrentView('resultsExport')}
+            onNavigateToTools={() => setCurrentView('tools')}
+            onNavigateToDatabaseCleanup={() => setCurrentView('databaseCleanup')}
           />
         );
       case 'eventBuilder':
@@ -68,6 +104,7 @@ function App() {
           <div style={{ width: '100%', height: '100vh', overflow: 'hidden' }}>
             <EventDayHome 
               onBack={() => setCurrentView('eventDayOps')}
+              onBackToMain={() => setCurrentView('dashboard')}
             />
           </div>
         );
@@ -77,6 +114,10 @@ function App() {
         return <LiveResultsDisplay />;
       case 'resultsExport':
         return <ResultsExport />;
+      case 'tools':
+        return <Tools onBack={() => setCurrentView('dashboard')} />;
+      case 'databaseCleanup':
+        return <DatabaseCleanupSQLite onBack={() => setCurrentView('dashboard')} />;
       default:
         return null;
     }
@@ -92,7 +133,12 @@ function App() {
       }}
     >
       <Layout style={{ minHeight: '100vh', background: '#f5f5f5' }}>
-        {currentView !== 'eventDayDashboard' && <Header title={currentView === 'eventBuilder' ? 'Event Builder' : 'MeOS Event Management System'} />}
+        {currentView !== 'eventDayDashboard' && (
+          <Header 
+            title={currentView === 'eventBuilder' ? 'Event Builder' : 'MeOS Event Management System'} 
+            onNavigateToMain={currentView !== 'dashboard' ? () => setCurrentView('dashboard') : undefined}
+          />
+        )}
         <Layout.Content style={{ background: '#f5f5f5', padding: currentView === 'eventDayDashboard' ? '0' : undefined }}>
           {renderCurrentView()}
         </Layout.Content>

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Table, Button, Space, Form, Input, Select, Row, Col, message, Card, Switch, Typography, Divider } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SaveOutlined, CloudSyncOutlined, FolderOpenOutlined, CloudDownloadOutlined, CloudUploadOutlined, ImportOutlined } from '@ant-design/icons';
-import { localRunnerService, type LocalRunner } from '../services/localRunnerService';
+import { Modal, Table, Button, Space, Form, Input, Select, Row, Col, message, Card, Typography, Statistic } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SaveOutlined, DatabaseOutlined, SearchOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { sqliteRunnerDB, type RunnerRecord } from '../services/sqliteRunnerDatabaseService';
 
 const { Option } = Select;
+const { Text } = Typography;
 
 interface RunnerDatabaseManagerProps {
   open: boolean;
@@ -11,314 +12,229 @@ interface RunnerDatabaseManagerProps {
 }
 
 const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onClose }) => {
-  const [runners, setRunners] = useState<LocalRunner[]>([]);
-  const [editing, setEditing] = useState<LocalRunner | null>(null);
+  const [runners, setRunners] = useState<RunnerRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [editing, setEditing] = useState<RunnerRecord | null>(null);
   const [showEditForm, setShowEditForm] = useState(false);
-  const [forceRender, setForceRender] = useState(0);
-  const [cloudPath, setCloudPath] = useState<string>('');
-  const [autoSave, setAutoSave] = useState<boolean>(true);
-  const [isElectron, setIsElectron] = useState<boolean>(false);
-  const [xmlImporting, setXmlImporting] = useState<boolean>(false);
   const [searchText, setSearchText] = useState<string>('');
-  const [importMode, setImportMode] = useState<'merge' | 'replace' | null>(null);
-  const [pendingXmlFile, setPendingXmlFile] = useState<File | null>(null);
+  const [stats, setStats] = useState<{ totalRunners: number; totalClubs: number; lastUpdated: Date | null }>({
+    totalRunners: 0,
+    totalClubs: 0,
+    lastUpdated: null
+  });
   const [form] = Form.useForm();
-  
-  // Removed continuous console logging to prevent spam
 
-  const refresh = () => {
-    setRunners(localRunnerService.getAllRunners());
-    // Update cloud sync status
-    const status = localRunnerService.getCloudSyncStatus();
-    setCloudPath(status.path);
-    setAutoSave(status.autoSave);
-    // Check if running in Electron
-    setIsElectron(!!(typeof window !== 'undefined' && (window as any).electronAPI));
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      await sqliteRunnerDB.initialize();
+      
+      // Get all runners
+      const allRunners = sqliteRunnerDB.getAllRunners();
+      setRunners(allRunners);
+      
+      // Get stats
+      const dbStats = sqliteRunnerDB.getStats();
+      setStats(dbStats);
+      
+    } catch (error) {
+      console.error('[RunnerDBManager] Failed to load runners:', error);
+      message.error('Failed to load runner database');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    if (open) refresh();
+    if (open) {
+      refresh();
+    }
   }, [open]);
 
-  const startEdit = (runner?: LocalRunner) => {
-    console.log('startEdit called with:', runner?.name);
+  const startEdit = (runner?: RunnerRecord) => {
     setEditing(runner || null);
-    setShowEditForm(true); // Always show form when startEdit is called
-    setForceRender(prev => prev + 1); // Force a re-render
+    setShowEditForm(true);
     
     form.resetFields();
     
     if (runner) {
-      // Use setTimeout to ensure the form is rendered before setting values
       setTimeout(() => {
-        try {
-          form.setFieldsValue({
-            firstName: runner.name.first,
-            lastName: runner.name.last,
-            birthYear: runner.birthYear,
-            club: runner.club,
-            sex: runner.sex,
-            phone: runner.phone,
-            email: runner.email,
-            cardNumber: runner.cardNumber,
-          });
-          console.log('Form values set successfully');
-        } catch (error) {
-          console.error('Error setting form values:', error);
-        }
-      }, 100);
+        form.setFieldsValue({
+          firstName: runner.first_name,
+          lastName: runner.last_name,
+          birthYear: runner.birth_year,
+          club: runner.club,
+          sex: runner.sex,
+          phone: runner.phone,
+          cardNumber: runner.card_number,
+        });
+      }, 50);
     }
-    
-    console.log('State updated - editing:', !!runner, 'showEditForm: true');
   };
 
   const saveRunner = async () => {
-    const vals = await form.validateFields();
-    if (editing) {
-      const updated = localRunnerService.updateRunner(editing.id, {
-        name: { first: vals.firstName.trim(), last: vals.lastName.trim() },
-        birthYear: vals.birthYear ? parseInt(vals.birthYear) : undefined,
-        club: vals.club?.trim() || '',
-        sex: vals.sex,
-        phone: vals.phone?.trim() || '',
-        email: vals.email?.trim() || '',
-        cardNumber: vals.cardNumber ? parseInt(vals.cardNumber) : undefined,
-      });
-      if (updated) message.success('Runner updated');
-    } else {
-      localRunnerService.addRunner({
-        name: { first: vals.firstName.trim(), last: vals.lastName.trim() },
-        birthYear: vals.birthYear ? parseInt(vals.birthYear) : undefined,
-        club: vals.club?.trim() || '',
-        sex: vals.sex,
-        phone: vals.phone?.trim() || '',
-        email: vals.email?.trim() || '',
-        cardNumber: vals.cardNumber ? parseInt(vals.cardNumber) : undefined,
-        nationality: '',
-      } as any);
-      message.success('Runner added');
+    try {
+      const vals = await form.validateFields();
+      
+      if (editing) {
+        // Update existing runner
+        sqliteRunnerDB.upsertRunner({
+          id: editing.id,
+          first_name: vals.firstName.trim(),
+          last_name: vals.lastName.trim(),
+          birth_year: vals.birthYear ? parseInt(vals.birthYear) : undefined,
+          club: vals.club?.trim() || 'Unknown',
+          sex: vals.sex,
+          phone: vals.phone?.trim(),
+          card_number: vals.cardNumber ? parseInt(vals.cardNumber) : undefined,
+        });
+        message.success('Runner updated');
+      } else {
+        // Create new runner with generated ID
+        const firstName = vals.firstName.trim();
+        const lastName = vals.lastName.trim();
+        const birthYear = vals.birthYear ? parseInt(vals.birthYear) : undefined;
+        
+        const runnerId = `${lastName}_${firstName}_${birthYear || 'unknown'}`
+          .toLowerCase()
+          .replace(/[^a-z0-9_]/g, '_');
+        
+        sqliteRunnerDB.upsertRunner({
+          id: runnerId,
+          first_name: firstName,
+          last_name: lastName,
+          birth_year: birthYear,
+          club: vals.club?.trim() || 'Unknown',
+          sex: vals.sex,
+          phone: vals.phone?.trim(),
+          card_number: vals.cardNumber ? parseInt(vals.cardNumber) : undefined,
+          times_used: 0,
+          last_used: new Date().toISOString(),
+        });
+        message.success('Runner added');
+      }
+      
+      setEditing(null);
+      setShowEditForm(false);
+      refresh();
+    } catch (error) {
+      console.error('Save runner error:', error);
+      message.error('Failed to save runner');
     }
-    setEditing(null);
-    setShowEditForm(false);
+  };
+
+  const delRunner = (r: RunnerRecord) => {
+    Modal.confirm({
+      title: `Delete ${r.first_name} ${r.last_name}?`,
+      content: 'This action cannot be undone.',
+      okText: 'Delete',
+      okType: 'danger',
+      onOk: () => {
+        try {
+          sqliteRunnerDB.deleteRunner(r.id);
+          message.success('Runner deleted');
+          refresh();
+        } catch (error) {
+          message.error('Failed to delete runner');
+        }
+      }
+    });
+  };
+
+  const handleSearch = (value: string) => {
+    setSearchText(value);
+    if (!value.trim()) {
+      // If search is empty, show all runners
+      refresh();
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      // Use SQLite search
+      const results = sqliteRunnerDB.searchRunners(value, 500);
+      setRunners(results);
+    } catch (error) {
+      console.error('Search error:', error);
+      message.error('Search failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearSearch = () => {
+    setSearchText('');
     refresh();
   };
 
-  const delRunner = (r: LocalRunner) => {
-    if (localRunnerService.deleteRunner(r.id)) {
-      message.success('Runner deleted');
-      refresh();
-    }
-  };
-
-  // Cloud sync handlers
-  const handleChooseCloudPath = async () => {
-    const newPath = await localRunnerService.chooseCloudPath();
-    if (newPath) {
-      setCloudPath(newPath);
-      message.success(`Cloud path updated to: ${newPath}`);
-    }
-  };
-
-  const handleLoadFromCloud = async () => {
-    try {
-      const result = await localRunnerService.loadFromCloud();
-      if (result.success) {
-        message.success(`Loaded ${result.imported} runners from cloud`);
-        refresh();
-      } else {
-        message.error(`Failed to load from cloud: ${result.errors.join(', ')}`);
-      }
-    } catch (error) {
-      message.error('Error loading from cloud');
-    }
-  };
-
-  const handleSaveToCloud = async () => {
-    try {
-      const success = await localRunnerService.saveToCloud();
-      if (success) {
-        message.success('Successfully saved to cloud');
-      } else {
-        message.error('Failed to save to cloud');
-      }
-    } catch (error) {
-      message.error('Error saving to cloud');
-    }
-  };
-
-  const handleAutoSaveToggle = (enabled: boolean) => {
-    localRunnerService.setAutoSave(enabled);
-    setAutoSave(enabled);
-    message.success(`Auto-save ${enabled ? 'enabled' : 'disabled'}`);
-  };
-
-  const promptImportMode = (file: File) => {
-    setPendingXmlFile(file);
-    // Modal will be shown based on pendingXmlFile state
-  };
-
-  const handleXMLImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    
-    // Clear the file input for next time
-    event.target.value = '';
-    
-    // Show modal to choose import mode
-    promptImportMode(file);
-  };
-
-  const executeXMLImport = async (mode: 'merge' | 'replace') => {
-    if (!pendingXmlFile) return;
-    
-    const file = pendingXmlFile;
-    setPendingXmlFile(null);
-    setImportMode(null);
-    setXmlImporting(true);
-    
-    try {
-      message.loading(`${mode === 'merge' ? 'Merging' : 'Replacing with'} XML file...`, 0);
-      
-      const xmlContent = await file.text();
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
-      
-      const competitors = xmlDoc.getElementsByTagName('Competitor');
-      const xmlRunners = [];
-      
-      for (let i = 0; i < competitors.length; i++) {
-        const competitor = competitors[i];
-        const person = competitor.getElementsByTagName('Person')[0];
-        if (!person) continue;
-        
-        const nameElement = person.getElementsByTagName('Name')[0];
-        if (!nameElement) continue;
-        
-        const givenName = nameElement.getElementsByTagName('Given')[0]?.textContent?.trim();
-        const familyName = nameElement.getElementsByTagName('Family')[0]?.textContent?.trim();
-        
-        if (!givenName || !familyName) continue;
-        
-        const sex = person.getAttribute('sex') || undefined;
-        const birthDateElement = person.getElementsByTagName('BirthDate')[0];
-        let birthYear;
-        if (birthDateElement) {
-          const birthDate = birthDateElement.textContent?.trim();
-          if (birthDate) birthYear = parseInt(birthDate.split('-')[0]);
-        }
-        
-        const controlCard = competitor.getElementsByTagName('ControlCard')[0];
-        let cardNumber;
-        if (controlCard) {
-          const cardText = controlCard.textContent?.trim();
-          if (cardText) cardNumber = parseInt(cardText);
-        }
-        
-        const orgElement = competitor.getElementsByTagName('Organisation')[0];
-        let club = '';
-        if (orgElement) {
-          const orgName = orgElement.getElementsByTagName('Name')[0]?.textContent?.trim();
-          if (orgName) {
-            club = orgName;
-          } else {
-            const orgId = orgElement.getElementsByTagName('Id')[0]?.textContent?.trim();
-            if (orgId === '852') club = 'DVOA';
-            else if (orgId === '3') club = 'QOC';
-            else if (orgId === '4') club = 'HVO';
-            else if (orgId === '14') club = 'None';
-            else if (orgId === '90010') club = 'CSU';
-            else club = orgId ? `Org-${orgId}` : '';
-          }
-        }
-        
-        xmlRunners.push({
-          name: { first: givenName, last: familyName },
-          club: club,
-          birthYear: birthYear,
-          sex: sex as 'M' | 'F' | undefined,
-          cardNumber: cardNumber,
-          nationality: '',
-          phone: '',
-          email: ''
-        });
-      }
-      
-      message.destroy();
-      
-      if (xmlRunners.length === 0) {
-        message.error('No valid runners found in XML file');
-        return;
-      }
-      
-      // Clear existing runners only in replace mode
-      if (mode === 'replace') {
-        localRunnerService.clearAllRunners();
-      }
-      
-      let imported = 0;
-      let updated = 0;
-      const initialCount = localRunnerService.getAllRunners().length;
-      
-      xmlRunners.forEach(runnerData => {
-        const runner = localRunnerService.addRunner(runnerData);
-        // addRunner returns the runner - check if it was new or updated
-        // In merge mode, we can check if the count increased
-        imported++;
-      });
-      
-      const finalCount = localRunnerService.getAllRunners().length;
-      const newRunners = mode === 'merge' ? finalCount - initialCount : imported;
-      const updatedRunners = mode === 'merge' ? imported - newRunners : 0;
-      
-      if (mode === 'merge') {
-        message.success(`Merged ${imported} runners: ${newRunners} new, ${updatedRunners} updated`);
-      } else {
-        message.success(`Replaced database with ${imported} runners from ${file.name}`);
-      }
-      refresh(); // Refresh the display
-      
-    } catch (error) {
-      message.destroy();
-      console.error('XML import error:', error);
-      message.error(`Failed to import XML: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setXmlImporting(false);
-    }
-  };
-
-  const filteredRunners = runners.filter(r => {
-    if (!searchText) return true;
-    const search = searchText.toLowerCase();
-    return (
-      r.name.first?.toLowerCase().includes(search) ||
-      r.name.last?.toLowerCase().includes(search) ||
-      r.club?.toLowerCase().includes(search) ||
-      r.phone?.toLowerCase().includes(search) ||
-      r.email?.toLowerCase().includes(search) ||
-      r.cardNumber?.toString().includes(search)
-    );
-  });
-
   const columns = [
-    { title: 'First Name', dataIndex: ['name','first'], key: 'first', width: 120, sorter: (a: any, b: any) => (a.name.first||'').localeCompare(b.name.first||'') },
-    { title: 'Last Name', dataIndex: ['name','last'], key: 'last', width: 120, sorter: (a: any, b: any) => (a.name.last||'').localeCompare(b.name.last||'') },
-    { title: 'Year', dataIndex: 'birthYear', key: 'birthYear', width: 70 },
-    { title: 'Club', dataIndex: 'club', key: 'club', width: 100 },
-    { title: 'Sex', dataIndex: 'sex', key: 'sex', width: 50 },
-    { title: 'Phone', dataIndex: 'phone', key: 'phone', width: 120 },
-    { title: 'Email', dataIndex: 'email', key: 'email', width: 150 },
-    { title: 'Card', dataIndex: 'cardNumber', key: 'cardNumber', width: 80 },
+    { 
+      title: 'First Name', 
+      dataIndex: 'first_name', 
+      key: 'first_name', 
+      width: 120, 
+      sorter: (a: RunnerRecord, b: RunnerRecord) => (a.first_name || '').localeCompare(b.first_name || '') 
+    },
+    { 
+      title: 'Last Name', 
+      dataIndex: 'last_name', 
+      key: 'last_name', 
+      width: 120, 
+      sorter: (a: RunnerRecord, b: RunnerRecord) => (a.last_name || '').localeCompare(b.last_name || '') 
+    },
+    { 
+      title: 'Year', 
+      dataIndex: 'birth_year', 
+      key: 'birth_year', 
+      width: 70,
+      sorter: (a: RunnerRecord, b: RunnerRecord) => (a.birth_year || 0) - (b.birth_year || 0)
+    },
+    { 
+      title: 'Club', 
+      dataIndex: 'club', 
+      key: 'club', 
+      width: 100,
+      sorter: (a: RunnerRecord, b: RunnerRecord) => (a.club || '').localeCompare(b.club || '')
+    },
+    { 
+      title: 'Sex', 
+      dataIndex: 'sex', 
+      key: 'sex', 
+      width: 50 
+    },
+    { 
+      title: 'Card', 
+      dataIndex: 'card_number', 
+      key: 'card_number', 
+      width: 80,
+      sorter: (a: RunnerRecord, b: RunnerRecord) => (a.card_number || 0) - (b.card_number || 0)
+    },
+    { 
+      title: 'Phone', 
+      dataIndex: 'phone', 
+      key: 'phone', 
+      width: 120 
+    },
     {
-      title: 'Actions', key: 'actions', width: 90, render: (_: any, r: LocalRunner) => (
+      title: 'Used',
+      dataIndex: 'times_used',
+      key: 'times_used',
+      width: 60,
+      render: (val: number) => val || 0,
+      sorter: (a: RunnerRecord, b: RunnerRecord) => (a.times_used || 0) - (b.times_used || 0)
+    },
+    {
+      title: 'Actions', 
+      key: 'actions', 
+      width: 90, 
+      fixed: 'right' as const,
+      render: (_: any, r: RunnerRecord) => (
         <Space size="small">
           <Button 
             type="text" 
             size="small" 
             icon={<EditOutlined />} 
-            onClick={() => {
-              console.log('Edit button clicked for:', r.name);
-              startEdit(r);
-            }}
+            onClick={() => startEdit(r)}
             title="Edit"
           />
           <Button 
@@ -326,10 +242,7 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
             size="small" 
             danger 
             icon={<DeleteOutlined />} 
-            onClick={() => {
-              console.log('Delete button clicked for:', r.name);
-              delRunner(r);
-            }}
+            onClick={() => delRunner(r)}
             title="Delete"
           />
         </Space>
@@ -341,86 +254,102 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
     <Modal
       title={
         <Space>
-          Runner Database ({filteredRunners.length} {searchText ? `of ${runners.length}` : ''})
-          <Button size="small" icon={<PlusOutlined />} onClick={() => startEdit(undefined)}>Add Runner</Button>
-          <input type="file" id="xmlFileInput" accept=".xml" style={{display: 'none'}} onChange={handleXMLImport} />
-          <Button 
-            size="small" 
-            icon={<ImportOutlined />} 
-            loading={xmlImporting}
-            onClick={() => document.getElementById('xmlFileInput')?.click()}
-          >
-            Import XML
+          <DatabaseOutlined />
+          SQLite Runner Database
+          <Button size="small" icon={<PlusOutlined />} onClick={() => startEdit(undefined)}>
+            Add Runner
           </Button>
         </Space>
       }
       open={open}
-      onCancel={() => { setEditing(null); setShowEditForm(false); onClose(); }}
+      onCancel={() => { 
+        setEditing(null); 
+        setShowEditForm(false); 
+        setSearchText('');
+        onClose(); 
+      }}
       footer={null}
-      width={1000}
+      width={1200}
+      style={{ top: 20 }}
     >
-      {/* Search Box */}
-      <Input.Search 
-        placeholder="Search by name, club, phone, email, or card number"
-        allowClear
-        value={searchText}
-        onChange={(e) => setSearchText(e.target.value)}
-        style={{ marginBottom: 16 }}
-      />
-
-      {/* Cloud Sync Controls */}
+      {/* Stats Cards */}
       <Card size="small" style={{ marginBottom: 16 }}>
-        <Space split={<Divider type="vertical" />} wrap>
-          <Space>
-            <CloudSyncOutlined />
-            <Typography.Text strong>Cloud Sync:</Typography.Text>
-            <Typography.Text type="secondary" style={{ fontSize: '12px', maxWidth: '300px' }}>
-              {cloudPath || 'No path set'}
-            </Typography.Text>
-            {!isElectron && (
-              <Typography.Text type="warning" style={{ fontSize: '11px' }}>
-                (Web mode - limited functionality)
-              </Typography.Text>
-            )}
-          </Space>
-          <Space>
-            <Button 
-              size="small" 
-              icon={<FolderOpenOutlined />} 
-              onClick={handleChooseCloudPath}
-              title={isElectron ? 'Choose cloud sync location' : 'Set cloud path manually'}
-            >
-              {isElectron ? 'Choose Path' : 'Set Path'}
-            </Button>
-            <Button 
-              size="small" 
-              icon={<CloudDownloadOutlined />} 
-              onClick={handleLoadFromCloud}
-              title={isElectron ? 'Load from cloud file' : 'Load from JSON file'}
-            >
-              {isElectron ? 'Load from Cloud' : 'Load File'}
-            </Button>
-            <Button 
-              size="small" 
-              icon={<CloudUploadOutlined />} 
-              onClick={handleSaveToCloud}
-              title={isElectron ? 'Save to cloud file' : 'Download JSON file'}
-            >
-              {isElectron ? 'Save to Cloud' : 'Download'}
-            </Button>
-          </Space>
-          <Space>
-            <Typography.Text>Auto-save:</Typography.Text>
-            <Switch size="small" checked={autoSave} onChange={handleAutoSaveToggle} />
-          </Space>
-        </Space>
+        <Row gutter={16}>
+          <Col span={8}>
+            <Statistic 
+              title="Total Runners" 
+              value={stats.totalRunners} 
+              prefix={<DatabaseOutlined />}
+            />
+          </Col>
+          <Col span={8}>
+            <Statistic 
+              title="Clubs" 
+              value={stats.totalClubs}
+            />
+          </Col>
+          <Col span={8}>
+            <Statistic 
+              title="Last Updated" 
+              value={stats.lastUpdated ? stats.lastUpdated.toLocaleDateString() : 'Never'}
+              valueStyle={{ fontSize: 16 }}
+            />
+          </Col>
+        </Row>
       </Card>
-      
-      <Table rowKey={(r: LocalRunner)=>r.id} dataSource={filteredRunners} columns={columns} size="small" pagination={false} />
+
+      {/* Search Box */}
+      <Space.Compact style={{ width: '100%', marginBottom: 16 }}>
+        <Input
+          placeholder="Search by name, club, or card number..."
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          onPressEnter={() => handleSearch(searchText)}
+          prefix={<SearchOutlined />}
+          suffix={
+            searchText && (
+              <CloseCircleOutlined 
+                onClick={clearSearch}
+                style={{ cursor: 'pointer', color: '#999' }}
+              />
+            )
+          }
+        />
+        <Button type="primary" onClick={() => handleSearch(searchText)}>
+          Search
+        </Button>
+      </Space.Compact>
+
+      {searchText && (
+        <div style={{ marginBottom: 8 }}>
+          <Text type="secondary">
+            Showing {runners.length} result{runners.length !== 1 ? 's' : ''} for "{searchText}"
+          </Text>
+          {' '}
+          <Button type="link" size="small" onClick={clearSearch}>
+            Clear search
+          </Button>
+        </div>
+      )}
+
+      <Table 
+        rowKey={(r: RunnerRecord) => r.id} 
+        dataSource={runners} 
+        columns={columns} 
+        size="small" 
+        loading={loading}
+        scroll={{ y: 400 }}
+        pagination={{ 
+          pageSize: 50, 
+          showSizeChanger: true,
+          showTotal: (total) => `Total ${total} runners`,
+          pageSizeOptions: ['50', '100', '200', '500']
+        }} 
+      />
       
       {/* Edit/Add Runner Modal */}
       <Modal
-        title={editing ? `Edit Runner: ${editing.name.first} ${editing.name.last}` : 'Add New Runner'}
+        title={editing ? `Edit Runner: ${editing.first_name} ${editing.last_name}` : 'Add New Runner'}
         open={showEditForm}
         onCancel={() => { setEditing(null); setShowEditForm(false); }}
         footer={[
@@ -436,12 +365,12 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
         <Form form={form} layout="vertical">
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="firstName" label="First Name" rules={[{ required: true }]}>
+              <Form.Item name="firstName" label="First Name" rules={[{ required: true, message: 'Required' }]}>
                 <Input />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="lastName" label="Last Name" rules={[{ required: true }]}>
+              <Form.Item name="lastName" label="Last Name" rules={[{ required: true, message: 'Required' }]}>
                 <Input />
               </Form.Item>
             </Col>
@@ -449,12 +378,12 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item name="birthYear" label="Year Born">
-                <Input type="number" />
+                <Input type="number" placeholder="YYYY" />
               </Form.Item>
             </Col>
             <Col span={8}>
               <Form.Item name="sex" label="Sex">
-                <Select allowClear>
+                <Select allowClear placeholder="Select">
                   <Option value="M">M</Option>
                   <Option value="F">F</Option>
                 </Select>
@@ -462,98 +391,25 @@ const RunnerDatabaseManager: React.FC<RunnerDatabaseManagerProps> = ({ open, onC
             </Col>
             <Col span={8}>
               <Form.Item name="cardNumber" label="SI Card">
-                <Input type="number" />
+                <Input type="number" placeholder="Card #" />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={16}>
             <Col span={24}>
               <Form.Item name="club" label="Club">
-                <Input />
+                <Input placeholder="e.g., DVOA" />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={24}>
               <Form.Item name="phone" label="Phone">
-                <Input />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="email" label="Email">
-                <Input type="email" />
+                <Input placeholder="(123) 456-7890" />
               </Form.Item>
             </Col>
           </Row>
         </Form>
-      </Modal>
-
-      {/* Import Mode Selection Modal */}
-      <Modal
-        title="Import XML - Choose Mode"
-        open={pendingXmlFile !== null}
-        onCancel={() => {
-          setPendingXmlFile(null);
-          setImportMode(null);
-        }}
-        footer={[
-          <Button key="cancel" onClick={() => {
-            setPendingXmlFile(null);
-            setImportMode(null);
-          }}>
-            Cancel
-          </Button>,
-          <Button 
-            key="merge" 
-            type="default" 
-            onClick={() => executeXMLImport('merge')}
-            style={{ backgroundColor: '#52c41a', color: 'white' }}
-          >
-            Merge/Sync
-          </Button>,
-          <Button 
-            key="replace" 
-            type="primary" 
-            danger
-            onClick={() => executeXMLImport('replace')}
-          >
-            Replace All
-          </Button>
-        ]}
-        width={500}
-      >
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
-          <Typography.Paragraph>
-            <strong>File:</strong> {pendingXmlFile?.name}
-          </Typography.Paragraph>
-          
-          <Typography.Paragraph>
-            How do you want to import this XML file?
-          </Typography.Paragraph>
-
-          <Card size="small" style={{ backgroundColor: '#f6ffed', borderColor: '#b7eb8f' }}>
-            <Typography.Title level={5} style={{ marginTop: 0 }}>
-              <ImportOutlined /> Merge/Sync (Recommended)
-            </Typography.Title>
-            <ul style={{ marginBottom: 0 }}>
-              <li>Adds new runners from XML</li>
-              <li>Updates existing runners with XML data</li>
-              <li>Keeps existing runners not in XML</li>
-              <li><strong>Safe:</strong> No data loss</li>
-            </ul>
-          </Card>
-
-          <Card size="small" style={{ backgroundColor: '#fff1f0', borderColor: '#ffccc7' }}>
-            <Typography.Title level={5} style={{ marginTop: 0, color: '#cf1322' }}>
-              ⚠️ Replace All
-            </Typography.Title>
-            <ul style={{ marginBottom: 0 }}>
-              <li>Deletes ALL existing runners</li>
-              <li>Replaces with only runners from XML</li>
-              <li><strong>Warning:</strong> Cannot be undone</li>
-            </ul>
-          </Card>
-        </Space>
       </Modal>
     </Modal>
   );

@@ -32,8 +32,7 @@ import {
   UsbOutlined
 } from '@ant-design/icons';
 import { sportIdentService, type SICard, type SICardReadEvent } from '../services/sportIdentService';
-import { localEntryService, type LocalEntry } from '../services/localEntryService';
-import { localRunnerService } from '../services/localRunnerService';
+import { localEntryService, type LocalEntry, type ClassRegistration } from '../services/localEntryService';
 import { meosHiredCardService } from '../services/meosHiredCardService';
 import { meosClassService } from '../services/meosClassService';
 
@@ -52,6 +51,7 @@ interface WorkflowState {
   selectedEntry?: LocalEntry;
   scannedCard?: SICard;
   editingEntry?: Partial<LocalEntry>;
+  selectedClassId?: string; // For multi-class runners, which class to check in
 }
 
 const EventDayCheckIn: React.FC<EventDayCheckInProps> = ({
@@ -238,10 +238,26 @@ const EventDayCheckIn: React.FC<EventDayCheckInProps> = ({
   };
 
   const handleSelectEntry = (entry: LocalEntry) => {
-    setWorkflowState(prev => ({ ...prev, selectedEntry: entry }));
+    const hasMultiple = localEntryService.hasMultipleClasses(entry);
+    const allClasses = localEntryService.getEntryClasses(entry);
+    
+    // Default to first pending class, or primary class
+    const pendingClass = allClasses.find(c => c.status === 'pending');
+    const defaultClassId = pendingClass?.classId || entry.classId;
+    
+    setWorkflowState(prev => ({ 
+      ...prev, 
+      selectedEntry: entry,
+      selectedClassId: defaultClassId
+    }));
     populateFormForEntry(entry);
     setSearchResults([]);
     setSearchTerm('');
+    
+    if (hasMultiple) {
+      const classNames = allClasses.map(c => `${c.className} (${c.status})`).join(', ');
+      message.info(`Runner registered for multiple classes: ${classNames}`);
+    }
   };
 
   const handleCheckIn = async () => {
@@ -257,6 +273,11 @@ const EventDayCheckIn: React.FC<EventDayCheckInProps> = ({
           if (!workflowState.selectedEntry) {
             throw new Error('No entry selected');
           }
+          
+          // Check if this is a multi-class runner
+          const hasMultiple = localEntryService.hasMultipleClasses(workflowState.selectedEntry);
+          const selectedClassId = workflowState.selectedClassId || formValues.classId;
+          
           // Update existing entry
           updatedEntry = localEntryService.updateEntry(workflowState.selectedEntry.id, {
             name: {
@@ -268,13 +289,21 @@ const EventDayCheckIn: React.FC<EventDayCheckInProps> = ({
             sex: formValues.sex,
             nationality: formValues.nationality,
             phone: formValues.phone,
-            classId: formValues.classId,
-            className: classes.find(c => c.id === formValues.classId)?.name || '',
             cardNumber: formValues.cardNumber,
             isHiredCard: workflowState.scenario === 'pre-reg-rental'
           });
+          
           if (updatedEntry) {
-            updatedEntry = localEntryService.checkInEntry(updatedEntry.id, formValues.cardNumber);
+            // Check in for the specific class
+            if (hasMultiple) {
+              updatedEntry = localEntryService.checkInEntryForClass(
+                updatedEntry.id, 
+                selectedClassId,
+                formValues.cardNumber
+              );
+            } else {
+              updatedEntry = localEntryService.checkInEntry(updatedEntry.id, formValues.cardNumber);
+            }
           }
           break;
 
@@ -302,9 +331,6 @@ const EventDayCheckIn: React.FC<EventDayCheckInProps> = ({
       }
 
       if (updatedEntry) {
-        // Update runner database
-        await localRunnerService.learnFromEntry(updatedEntry);
-        
         message.success(`✅ ${updatedEntry.name.first} ${updatedEntry.name.last} checked in successfully!`);
         
         if (onEntryProcessed) {
@@ -505,6 +531,36 @@ const EventDayCheckIn: React.FC<EventDayCheckInProps> = ({
       {/* Entry Form */}
       {workflowState.scenario !== 'select' && (workflowState.selectedEntry || workflowState.scenario === 'same-day') && (
         <Card title="Participant Details">
+          {/* Multi-class indicator and class selector */}
+          {workflowState.selectedEntry && localEntryService.hasMultipleClasses(workflowState.selectedEntry) && (
+            <Alert
+              type="info"
+              message="Multiple Class Registration"
+              description={
+                <div>
+                  <Text>This runner is registered for multiple classes. Select which class to check in:</Text>
+                  <div style={{ marginTop: '8px' }}>
+                    {localEntryService.getEntryClasses(workflowState.selectedEntry).map((classReg) => (
+                      <Tag 
+                        key={classReg.classId}
+                        color={classReg.status === 'checked-in' ? 'green' : (workflowState.selectedClassId === classReg.classId ? 'blue' : 'default')}
+                        style={{ cursor: classReg.status === 'pending' ? 'pointer' : 'default', marginBottom: '4px' }}
+                        onClick={() => {
+                          if (classReg.status === 'pending') {
+                            setWorkflowState(prev => ({ ...prev, selectedClassId: classReg.classId }));
+                            form.setFieldsValue({ classId: classReg.classId });
+                          }
+                        }}
+                      >
+                        {classReg.className} - {classReg.status === 'checked-in' ? '✓ Checked In' : (workflowState.selectedClassId === classReg.classId ? 'Selected for Check-In' : 'Pending')}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+              }
+              style={{ marginBottom: '16px' }}
+            />
+          )}
           <Form form={form} layout="vertical">
             <Row gutter={16}>
               <Col span={12}>

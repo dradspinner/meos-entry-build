@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Table, Tag, Button, Space, Typography, Alert, App, Checkbox } from 'antd';
-import { SyncOutlined, CheckCircleOutlined, PlusOutlined, ToolOutlined, DatabaseOutlined } from '@ant-design/icons';
+import { Card, Table, Tag, Button, Space, Typography, Alert, App, Checkbox, Modal, Radio } from 'antd';
+import { SyncOutlined, CheckCircleOutlined, DatabaseOutlined } from '@ant-design/icons';
 import { localEntryService, type LocalEntry } from '../services/localEntryService';
-import { localRunnerService, type LocalRunner } from '../services/localRunnerService';
+import { sqliteRunnerDB, type RunnerRecord } from '../services/sqliteRunnerDatabaseService';
 import RunnerDatabaseManager from './RunnerDatabaseManager';
 
 const { Text } = Typography;
 
-type FieldKey = 'club' | 'birthYear' | 'sex' | 'cardNumber' | 'phone' | 'email';
+type FieldKey = 'club' | 'birthYear' | 'sex' | 'cardNumber' | 'phone';
 
 type DiffType = 'same' | 'entry_missing' | 'db_missing' | 'conflict';
 
@@ -20,7 +20,7 @@ interface FieldDiff {
 
 interface ReviewItem {
   entry: LocalEntry;
-  runner?: LocalRunner;
+  sqliteRunner?: RunnerRecord;
   status: 'matched' | 'unmatched' | 'skipped';
   diffs: FieldDiff[];
 }
@@ -32,30 +32,28 @@ function normalizeEntryField(e: LocalEntry, field: FieldKey): string | number | 
     case 'sex': return (e.sex || '').trim();
     case 'cardNumber': return e.cardNumber && e.cardNumber.trim() !== '' && e.cardNumber !== '0' ? parseInt(e.cardNumber) : undefined;
     case 'phone': return (e.phone || '').trim();
-    case 'email': return undefined; // LocalEntry does not store email
   }
 }
 
-function normalizeRunnerField(r: LocalRunner, field: FieldKey): string | number | undefined {
+function normalizeSqliteField(r: RunnerRecord, field: FieldKey): string | number | undefined {
   switch (field) {
     case 'club': return (r.club || '').trim();
-    case 'birthYear': return r.birthYear;
+    case 'birthYear': return r.birth_year;
     case 'sex': return r.sex;
-    case 'cardNumber': return r.cardNumber;
+    case 'cardNumber': return r.card_number;
     case 'phone': return (r.phone || '').trim();
-    case 'email': return (r.email || '').trim();
   }
 }
 
-function computeDiffs(entry: LocalEntry, runner?: LocalRunner): FieldDiff[] {
-  const fields: FieldKey[] = ['club', 'birthYear', 'sex', 'cardNumber', 'phone', 'email'];
+function computeDiffs(entry: LocalEntry, sqliteRunner?: RunnerRecord): FieldDiff[] {
+  const fields: FieldKey[] = ['club', 'birthYear', 'sex', 'cardNumber', 'phone'];
   return fields.map((f) => {
     const eVal = normalizeEntryField(entry, f);
-    const rVal = runner ? normalizeRunnerField(runner, f) : undefined;
+    const rVal = sqliteRunner ? normalizeSqliteField(sqliteRunner, f) : undefined;
     let type: DiffType = 'same';
 
-    const isMissing = (v: any) => v === undefined || v === '' || v === null;
-    if (runner === undefined) {
+    const isMissing = (v: any) => v === undefined || v === '' || v === null || v === 0 || v === '0';
+    if (sqliteRunner === undefined) {
       type = 'db_missing';
     } else if (isMissing(eVal) && !isMissing(rVal)) {
       type = 'entry_missing';
@@ -72,13 +70,13 @@ function computeDiffs(entry: LocalEntry, runner?: LocalRunner): FieldDiff[] {
   });
 }
 
-function findRunnerByExactName(first: string, last: string): LocalRunner | undefined {
-  const targetFirst = (first || '').toLowerCase().trim();
-  const targetLast = (last || '').toLowerCase().trim();
-  return localRunnerService.getAllRunners().find(r =>
-    r.name.first.toLowerCase().trim() === targetFirst &&
-    r.name.last.toLowerCase().trim() === targetLast
-  );
+function findSqliteRunnerByExactName(first: string, last: string): RunnerRecord | undefined {
+  try {
+    const runner = sqliteRunnerDB.getRunnerByExactName(first, last);
+    return runner || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 const EntryReviewAndFix: React.FC = () => {
@@ -86,27 +84,61 @@ const EntryReviewAndFix: React.FC = () => {
   const [entries, setEntries] = useState<LocalEntry[]>([]);
   const [showUnmatchedOnly, setShowUnmatchedOnly] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [runnerCount, setRunnerCount] = useState<number>(localRunnerService.getAllRunners().length);
+  const [dbInitialized, setDbInitialized] = useState(false);
+  const [runnerCount, setRunnerCount] = useState<number>(0);
   const [dbManagerOpen, setDbManagerOpen] = useState<boolean>(false);
+  const [duplicatesQueue, setDuplicatesQueue] = useState<Array<{ entry: LocalEntry; matches: RunnerRecord[] }>>([]);
+  const [currentDuplicateIndex, setCurrentDuplicateIndex] = useState(0);
+  const [selectedRunner, setSelectedRunner] = useState<string | null>(null);
 
   const scan = () => {
     setEntries(localEntryService.getAllEntries());
-    setRunnerCount(localRunnerService.getAllRunners().length);
+    if (dbInitialized) {
+      try {
+        const stats = sqliteRunnerDB.getStats();
+        setRunnerCount(stats.totalRunners);
+      } catch {
+        setRunnerCount(0);
+      }
+    }
   };
 
-  useEffect(() => { scan(); }, []);
+  useEffect(() => {
+    const initDB = async () => {
+      try {
+        await sqliteRunnerDB.initialize();
+        setDbInitialized(true);
+        console.log('[EntryReview] SQLite database initialized');
+      } catch (error) {
+        console.error('[EntryReview] Failed to initialize SQLite:', error);
+      }
+    };
+    
+    initDB();
+    scan();
+  }, []);
 
   const reviewItems: ReviewItem[] = useMemo(() => {
+    if (!dbInitialized) {
+      // Return basic items without DB lookups until DB is ready
+      return entries.map((e) => {
+        const groupSize = parseInt(e.nationality || '1');
+        const isGroup = groupSize >= 2 || !e.name.last;
+        const status: ReviewItem['status'] = isGroup ? 'skipped' : 'unmatched';
+        return { entry: e, sqliteRunner: undefined, status, diffs: [] };
+      });
+    }
+    
     return entries.map((e) => {
       // Skip adding groups (we store group size in nationality and often last name empty)
       const groupSize = parseInt(e.nationality || '1');
       const isGroup = groupSize >= 2 || !e.name.last;
-      const runner = isGroup ? undefined : findRunnerByExactName(e.name.first, e.name.last);
-      const status: ReviewItem['status'] = isGroup ? 'skipped' : (runner ? 'matched' : 'unmatched');
-      const diffs = computeDiffs(e, runner);
-      return { entry: e, runner, status, diffs };
+      const sqliteRunner = isGroup ? undefined : findSqliteRunnerByExactName(e.name.first, e.name.last);
+      const status: ReviewItem['status'] = isGroup ? 'skipped' : (sqliteRunner ? 'matched' : 'unmatched');
+      const diffs = computeDiffs(e, sqliteRunner);
+      return { entry: e, sqliteRunner, status, diffs };
     });
-  }, [entries]);
+  }, [entries, dbInitialized]);
 
   const filteredItems = useMemo(() => {
     if (showUnmatchedOnly) return reviewItems.filter(i => i.status === 'unmatched');
@@ -114,7 +146,7 @@ const EntryReviewAndFix: React.FC = () => {
   }, [reviewItems, showUnmatchedOnly]);
 
   const updateEntryFromDB = (item: ReviewItem, fieldToUpdate?: FieldKey) => {
-    if (!item.runner) return;
+    if (!item.sqliteRunner) return;
     const updates: Partial<LocalEntry> = {};
 
     item.diffs.forEach(d => {
@@ -129,7 +161,6 @@ const EntryReviewAndFix: React.FC = () => {
           case 'sex': updates.sex = String(d.dbVal || ''); break;
           case 'cardNumber': updates.cardNumber = d.dbVal ? String(d.dbVal) : '0'; break;
           case 'phone': updates.phone = String(d.dbVal || ''); break;
-          // email not stored on entries
         }
       }
     });
@@ -151,93 +182,186 @@ const EntryReviewAndFix: React.FC = () => {
     }
   };
 
-  const updateDBFromEntry = (item: ReviewItem) => {
-    if (!item.runner) return;
-    const updates: Partial<Omit<LocalRunner, 'id' | 'lastUsed' | 'timesUsed' | 'name'>> = {};
 
-    item.diffs.forEach(d => {
-      // Prefer filling DB when DB is missing; do not overwrite conflicts automatically
-      if (d.type === 'db_missing') {
-        switch (d.field) {
-          case 'club': updates.club = String(d.entryVal || ''); break;
-          case 'birthYear': updates.birthYear = typeof d.entryVal === 'number' ? d.entryVal : (d.entryVal ? parseInt(String(d.entryVal)) : undefined); break;
-          case 'sex': updates.sex = (d.entryVal as any) as 'M' | 'F' | undefined; break;
-          case 'cardNumber': updates.cardNumber = typeof d.entryVal === 'number' ? d.entryVal : (d.entryVal ? parseInt(String(d.entryVal)) : undefined); break;
-          case 'phone': updates.phone = String(d.entryVal || ''); break;
-          case 'email': /* no email on entry */ break;
+  // Helper function to detect similar names (e.g., "Ron" vs "Ronald")
+  const findPotentialDuplicates = (firstName: string, lastName: string): RunnerRecord[] => {
+    const allRunners = sqliteRunnerDB.getAllRunners();
+    
+    return allRunners.filter(r => {
+      // Exact last name match (case-insensitive)
+      if (r.last_name.toLowerCase() !== lastName.toLowerCase()) return false;
+      
+      const f1 = firstName.toLowerCase().trim();
+      const f2 = r.first_name.toLowerCase().trim();
+      
+      // Exact match
+      if (f1 === f2) return true;
+      
+      // Check if one is a nickname/abbreviation of the other
+      if (f1.startsWith(f2) || f2.startsWith(f1)) return true;
+      if (f1.includes(f2) || f2.includes(f1)) return true;
+      
+      return false;
+    });
+  };
+
+  const syncAllToSQLite = async () => {
+    setLoading(true);
+    try {
+      await sqliteRunnerDB.initialize();
+      let synced = 0;
+      let duplicatesFound: Array<{ entry: LocalEntry; matches: RunnerRecord[] }> = [];
+      
+      // First pass: detect potential duplicates
+      for (const item of reviewItems) {
+        const e = item.entry;
+        if (!e.name.last) continue; // Skip groups
+        
+        const matches = findPotentialDuplicates(e.name.first, e.name.last);
+        
+        // If multiple matches found (potential duplicates), flag for review
+        if (matches.length > 1) {
+          duplicatesFound.push({ entry: e, matches });
         }
       }
-    });
-
-    if (Object.keys(updates).length === 0) {
-      message.info('No missing database fields to fill from entry');
-      return;
-    }
-
-    const updated = localRunnerService.updateRunner(item.runner.id, updates as any);
-    if (updated) {
-      message.success(`Updated database for ${updated.name.first} ${updated.name.last}`);
-      scan();
+      
+      setLoading(false);
+      
+      // If duplicates found, show modal for user to resolve
+      if (duplicatesFound.length > 0) {
+        showDuplicateResolutionModal(duplicatesFound);
+        return;
+      }
+      
+      // No duplicates - proceed with sync
+      setLoading(true);
+      for (const item of reviewItems) {
+        const e = item.entry;
+        if (!e.name.last) continue;
+        
+        const cardNum = e.cardNumber ? parseInt(e.cardNumber.toString()) : undefined;
+        sqliteRunnerDB.updateRunnerFromEntry(
+          e.name.first,
+          e.name.last,
+          e.birthYear ? parseInt(e.birthYear.toString()) : undefined,
+          e.sex as 'M' | 'F' | undefined,
+          e.club,
+          cardNum && !isNaN(cardNum) && cardNum > 0 ? cardNum : undefined
+        );
+        synced++;
+      }
+      
+      message.success(`Synced ${synced} runners to SQLite database`);
+    } catch (error) {
+      console.error('[EntryReview] Sync to SQLite failed:', error);
+      message.error('Failed to sync to SQLite database');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const addToDatabase = (item: ReviewItem) => {
-    const e = item.entry;
-    if (!e.name.last) {
-      message.warning('Skipping group/team entries for database');
-      return;
-    }
-    localRunnerService.addRunner({
-      name: { first: e.name.first.trim(), last: e.name.last.trim() },
-      club: (e.club || '').trim(),
-      birthYear: e.birthYear ? parseInt(e.birthYear) : undefined,
-      sex: (e.sex as 'M' | 'F' | undefined) || undefined,
-      cardNumber: e.cardNumber && e.cardNumber !== '0' ? parseInt(e.cardNumber) : undefined,
-      phone: (e.phone || '').trim(),
-      email: '',
-      nationality: (e.nationality || '').trim(),
-    });
-    message.success(`Added ${e.name.first} ${e.name.last} to database`);
-    scan();
+  const showDuplicateResolutionModal = (duplicates: Array<{ entry: LocalEntry; matches: RunnerRecord[] }>) => {
+    setDuplicatesQueue(duplicates);
+    setCurrentDuplicateIndex(0);
+    setSelectedRunner(null);
   };
+  
+  // Effect to show the next duplicate modal when queue changes
+  useEffect(() => {
+    if (duplicatesQueue.length === 0 || currentDuplicateIndex >= duplicatesQueue.length) return;
+    
+    const dup = duplicatesQueue[currentDuplicateIndex];
+    const e = dup.entry;
+    
+    // Track selection locally to avoid closure issues
+    let localSelectedRunner: string | null = null;
+    
+    Modal.confirm({
+      title: `Potential Duplicate ${currentDuplicateIndex + 1}/${duplicatesQueue.length}: ${e.name.first} ${e.name.last}`,
+      width: 800,
+      content: (
+        <div>
+          <Alert 
+            type="warning" 
+            message="Multiple similar runners found in database" 
+            description={`Which runner should "${e.name.first} ${e.name.last}" (YB: ${e.birthYear || '?'}, Card: ${e.cardNumber || '?'}) match with?`}
+            style={{ marginBottom: 16 }}
+          />
+          
+          <Radio.Group 
+            onChange={(ev) => {
+              localSelectedRunner = ev.target.value;
+              setSelectedRunner(ev.target.value);
+            }} 
+            defaultValue={null}
+            style={{ width: '100%' }}
+          >
+            <Space direction="vertical" style={{ width: '100%' }}>
+              {dup.matches.map((match) => (
+                <Radio key={match.id} value={match.id} style={{ width: '100%' }}>
+                  <Card size="small" style={{ width: '100%' }}>
+                    <Space direction="vertical">
+                      <Text strong>{match.first_name} {match.last_name}</Text>
+                      <Text type="secondary">YB: {match.birth_year || '?'} | Sex: {match.sex || '?'} | Card: {match.card_number || '?'} | Club: {match.club}</Text>
+                      <Text type="secondary" style={{ fontSize: 11 }}>Used {match.times_used || 0} times</Text>
+                    </Space>
+                  </Card>
+                </Radio>
+              ))}
+              <Radio value="new">
+                <Card size="small" style={{ backgroundColor: '#f0f5ff' }}>
+                  <Text strong>Create New Runner</Text>
+                  <br />
+                  <Text type="secondary">These are different people</Text>
+                </Card>
+              </Radio>
+            </Space>
+          </Radio.Group>
+        </div>
+      ),
+      okText: currentDuplicateIndex < duplicatesQueue.length - 1 ? 'Next' : 'Finish',
+      cancelText: 'Skip All',
+      onOk: () => {
+        if (!localSelectedRunner) {
+          message.warning('Please select an option');
+          return false;
+        }
+        
+        if (localSelectedRunner === 'new') {
+          // User confirmed these are different people - do nothing
+        } else {
+          // User selected which runner to merge with
+          const targetRunner = dup.matches.find(m => m.id === localSelectedRunner);
+          if (targetRunner) {
+            // Delete other duplicates
+            dup.matches.forEach(m => {
+              if (m.id !== localSelectedRunner) {
+                sqliteRunnerDB.deleteRunner(m.id);
+              }
+            });
+            message.success(`Merged duplicates into ${targetRunner.first_name} ${targetRunner.last_name}`);
+          }
+        }
+        
+        // Move to next duplicate or finish
+        if (currentDuplicateIndex < duplicatesQueue.length - 1) {
+          setSelectedRunner(null);
+          setCurrentDuplicateIndex(currentDuplicateIndex + 1);
+        } else {
+          setDuplicatesQueue([]);
+          setCurrentDuplicateIndex(0);
+          message.success(`Resolved all duplicates. Run sync again to complete.`);
+          scan();
+        }
+      },
+      onCancel: () => {
+        setDuplicatesQueue([]);
+        setCurrentDuplicateIndex(0);
+        message.info('Skipped duplicate resolution. Please clean up database manually.');
+      }
+    });
+  }, [duplicatesQueue, currentDuplicateIndex]);
 
-  const addAllMissingToDatabase = () => {
-    const toAdd = reviewItems.filter(i => i.status === 'unmatched' && i.entry.name.last);
-    if (toAdd.length === 0) {
-      message.info('No unmatched runners to add');
-      return;
-    }
-    const before = localRunnerService.getAllRunners().length;
-    toAdd.forEach(item => {
-      const e = item.entry;
-      localRunnerService.addRunner({
-        name: { first: e.name.first.trim(), last: e.name.last.trim() },
-        club: (e.club || '').trim(),
-        birthYear: e.birthYear ? parseInt(e.birthYear) : undefined,
-        sex: (e.sex as 'M' | 'F' | undefined) || undefined,
-        cardNumber: e.cardNumber && e.cardNumber !== '0' ? parseInt(e.cardNumber) : undefined,
-        phone: (e.phone || '').trim(),
-        email: '',
-        nationality: (e.nationality || '').trim(),
-      });
-    });
-    const after = localRunnerService.getAllRunners().length;
-    const added = after - before;
-    message.success(`Added ${added} runner${added!==1?'s':''} to database (total: ${after})`);
-    scan();
-  };
-
-  const applyAllSafeEntryFixes = () => {
-    const toFix = reviewItems.filter(i => i.status === 'matched');
-    let fixed = 0;
-    toFix.forEach(i => {
-      const before = localEntryService.getAllEntries().find(e => e.id === i.entry.id);
-      updateEntryFromDB(i);
-      const after = localEntryService.getAllEntries().find(e => e.id === i.entry.id);
-      if (before && after && JSON.stringify(before) !== JSON.stringify(after)) fixed++;
-    });
-    if (fixed > 0) message.success(`Applied ${fixed} safe fixes from database`);
-  };
 
   const columns = [
     {
@@ -278,7 +402,7 @@ const EntryReviewAndFix: React.FC = () => {
                 if (entryEmpty && dbEmpty) return null;
               }
               
-              const labelMap: Record<FieldKey, string> = { club: 'Club', birthYear: 'YB', sex: 'Sex', cardNumber: 'Card', phone: 'Phone', email: 'Email' };
+              const labelMap: Record<FieldKey, string> = { club: 'Club', birthYear: 'YB', sex: 'Sex', cardNumber: 'Card', phone: 'Phone' };
               const color = d.type === 'entry_missing' ? 'blue' : d.type === 'db_missing' ? 'gold' : 'red';
               const text = `${labelMap[d.field]}: ${d.entryVal ?? '—'} ⇄ ${d.dbVal ?? '—'}`;
               
@@ -305,17 +429,14 @@ const EntryReviewAndFix: React.FC = () => {
     {
       title: 'Actions',
       key: 'actions',
-      width: 320,
+      width: 180,
       render: (record: ReviewItem) => (
         <Space>
           {record.status === 'matched' && (
-            <>
-              <Button size="small" onClick={() => updateEntryFromDB(record)} icon={<ToolOutlined />}>Fix Entry</Button>
-              <Button size="small" onClick={() => updateDBFromEntry(record)} icon={<SyncOutlined />}>Update DB</Button>
-            </>
+            <Button size="small" onClick={() => updateEntryFromDB(record)}>Fix Entry</Button>
           )}
           {record.status === 'unmatched' && (
-            <Button size="small" type="primary" onClick={() => addToDatabase(record)} icon={<PlusOutlined />}>Add to DB</Button>
+            <Text type="secondary">Not in DB</Text>
           )}
         </Space>
       )
@@ -328,9 +449,8 @@ const EntryReviewAndFix: React.FC = () => {
         <Tag color="blue" icon={<DatabaseOutlined />}>DB: {runnerCount}</Tag>
         <Checkbox checked={showUnmatchedOnly} onChange={(e) => setShowUnmatchedOnly(e.target.checked)}>Show unmatched only</Checkbox>
         <Button onClick={scan} loading={loading} icon={<SyncOutlined />}>Rescan</Button>
-        <Button onClick={() => setDbManagerOpen(true)} icon={<DatabaseOutlined />}>Open DB</Button>
-        <Button onClick={applyAllSafeEntryFixes} icon={<ToolOutlined />}>Apply Safe Fixes</Button>
-        <Button type="primary" onClick={addAllMissingToDatabase} icon={<PlusOutlined />}>Add All Missing</Button>
+        <Button onClick={() => setDbManagerOpen(true)} icon={<DatabaseOutlined />}>Manage Database</Button>
+        <Button onClick={syncAllToSQLite} loading={loading} icon={<DatabaseOutlined />} type="primary">Sync Database</Button>
       </Space>
     }>
       <Alert
@@ -339,11 +459,11 @@ const EntryReviewAndFix: React.FC = () => {
         message="How this works"
         description={
           <div>
-            <p>Each entry is matched against the Runner Database by exact name (First + Last).</p>
+            <p>Each entry is matched against the SQLite Runner Database by exact name (First + Last).</p>
             <ul style={{ marginLeft: 16 }}>
-              <li>Fix Entry: fill missing entry fields from the database. Click individual difference tags to update specific fields.</li>
-              <li>Update DB: fill missing database fields from the entry; does not overwrite existing values.</li>
-              <li>Add to DB: create a new runner record if no match is found (skips groups/teams).</li>
+              <li><strong>Matched (green):</strong> Runner found in database. Click difference tags to fix entry fields from database.</li>
+              <li><strong>Not in DB (orange):</strong> Runner not found. Use "Sync Database" to add all entries to database.</li>
+              <li><strong>Sync Database:</strong> Updates SQLite database with all entries from this event. Detects and merges duplicates.</li>
             </ul>
           </div>
         }

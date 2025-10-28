@@ -62,6 +62,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 contextBridge.exposeInMainWorld('electron', {
   saveFile: (filePath, content) => ipcRenderer.invoke('save-file', filePath, content),
   openExternal: (path) => ipcRenderer.invoke('open-external', path),
+  // Menu event listeners
+  on: (channel, callback) => {
+    ipcRenderer.on(channel, (event, ...args) => callback(...args));
+  },
+  removeListener: (channel, callback) => {
+    ipcRenderer.removeListener(channel, callback);
+  }
 });
 
 // Log when preload is ready

@@ -7,7 +7,9 @@ import {
   FileTextOutlined,
   UsergroupAddOutlined,
   TrophyOutlined,
-  GlobalOutlined
+  GlobalOutlined,
+  DatabaseOutlined,
+  WarningOutlined
 } from '@ant-design/icons';
 
 const { Title, Paragraph } = Typography;
@@ -16,12 +18,16 @@ interface DashboardProps {
   onNavigateToEventBuilder: () => void;
   onNavigateToEventDayOps: () => void;
   onNavigateToResultsExport?: () => void;
+  onNavigateToTools?: () => void;
+  onNavigateToDatabaseCleanup?: () => void;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
   onNavigateToEventBuilder, 
   onNavigateToEventDayOps,
-  onNavigateToResultsExport
+  onNavigateToResultsExport,
+  onNavigateToTools,
+  onNavigateToDatabaseCleanup
 }) => {
 
   return (
@@ -212,6 +218,123 @@ const Dashboard: React.FC<DashboardProps> = ({
                   style={{ height: '48px', fontSize: '16px' }}
                 >
                   Launch Results Export
+                </Button>
+              </div>
+            </Card>
+          </Col>
+
+          {onNavigateToTools && (
+            <Col xs={24} lg={12}>
+              <Card 
+                hoverable
+                style={{ height: '100%' }}
+                cover={
+                  <div style={{ 
+                    padding: '40px', 
+                    textAlign: 'center', 
+                    background: 'linear-gradient(135deg, #fa8c16 0%, #ffa940 100%)',
+                    color: 'white'
+                  }}>
+                    <DatabaseOutlined style={{ fontSize: '48px', marginBottom: '16px' }} />
+                    <Title level={3} style={{ color: 'white', margin: 0 }}>
+                      Tools & Utilities
+                    </Title>
+                  </div>
+                }
+              >
+                <div style={{ padding: '8px' }}>
+                  <Paragraph>
+                    <strong>Database Tools</strong>
+                  </Paragraph>
+                  <Paragraph>
+                    Convert and manage runner databases, migrate data, and access utility functions.
+                  </Paragraph>
+                  
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                      <DatabaseOutlined style={{ marginRight: '8px', color: '#fa8c16' }} />
+                      <span>SQL Runner DB Converter</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                      <ToolOutlined style={{ marginRight: '8px', color: '#fa8c16' }} />
+                      <span>Database Utilities</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
+                      <FileTextOutlined style={{ marginRight: '8px', color: '#fa8c16' }} />
+                      <span>Import/Export Tools</span>
+                    </div>
+                  </div>
+
+                  <Button 
+                    type="primary" 
+                    size="large" 
+                    block
+                    onClick={onNavigateToTools}
+                    style={{ height: '48px', fontSize: '16px', backgroundColor: '#fa8c16', borderColor: '#fa8c16' }}
+                  >
+                    Launch Tools
+                  </Button>
+                </div>
+              </Card>
+            </Col>
+          )}
+        </Row>
+      )}
+
+      {/* Database Cleanup Section */}
+      {onNavigateToDatabaseCleanup && (
+        <Row gutter={[24, 24]} style={{ marginTop: '24px' }}>
+          <Col xs={24} lg={12}>
+            <Card 
+              hoverable
+              style={{ height: '100%' }}
+              cover={
+                <div style={{ 
+                  padding: '40px', 
+                  textAlign: 'center', 
+                  background: 'linear-gradient(135deg, #ff7875 0%, #ff4d4f 100%)',
+                  color: 'white'
+                }}>
+                  <WarningOutlined style={{ fontSize: '48px', marginBottom: '16px' }} />
+                  <Title level={3} style={{ color: 'white', margin: 0 }}>
+                    Database Cleanup
+                  </Title>
+                </div>
+              }
+            >
+              <div style={{ padding: '8px' }}>
+                <Paragraph>
+                  <strong>Runner Database Management</strong>
+                </Paragraph>
+                <Paragraph>
+                  Manage your master runner database with duplicate detection, 
+                  club statistics, and data quality tools.
+                </Paragraph>
+                
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                    <WarningOutlined style={{ marginRight: '8px', color: '#ff4d4f' }} />
+                    <span>Duplicate Detection & Merging</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                    <UsergroupAddOutlined style={{ marginRight: '8px', color: '#ff4d4f' }} />
+                    <span>Club & Team Browsing</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
+                    <FileTextOutlined style={{ marginRight: '8px', color: '#ff4d4f' }} />
+                    <span>Data Quality Analysis</span>
+                  </div>
+                </div>
+
+                <Button 
+                  type="primary" 
+                  danger
+                  size="large" 
+                  block
+                  onClick={onNavigateToDatabaseCleanup}
+                  style={{ height: '48px', fontSize: '16px' }}
+                >
+                  Launch Database Cleanup
                 </Button>
               </div>
             </Card>

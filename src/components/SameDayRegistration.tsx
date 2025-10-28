@@ -15,23 +15,26 @@ import {
   Divider,
   Tag,
   AutoComplete,
-  Checkbox
+  Checkbox,
+  List
 } from 'antd';
 import {
   UserAddOutlined,
   IdcardOutlined,
   CheckCircleOutlined,
   SearchOutlined,
-  UserOutlined
+  UserOutlined,
+  PlusOutlined
 } from '@ant-design/icons';
-import { localRunnerService, type LocalRunner } from '../services/localRunnerService';
-import { localEntryService, type LocalEntry } from '../services/localEntryService';
+import { sqliteRunnerDB, type RunnerRecord } from '../services/sqliteRunnerDatabaseService';
+import { localEntryService, type LocalEntry, type ClassRegistration } from '../services/localEntryService';
 import { meosClassService } from '../services/meosClassService';
 import { meosApi } from '../services/meosApi';
 import { sportIdentService, type SICardReadEvent } from '../services/sportIdentService';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
+const { Search } = Input;
 
 interface SameDayRegistrationProps {
   visible: boolean;
@@ -63,14 +66,20 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
   const { message } = App.useApp();
   const [form] = Form.useForm<RegistrationFormData>();
   const [loading, setLoading] = useState(false);
-  const [foundRunner, setFoundRunner] = useState<LocalRunner | null>(null);
+  const [foundRunner, setFoundRunner] = useState<RunnerRecord | null>(null);
   const [classes, setClasses] = useState<Array<{ id: string; name: string; fee: number }>>([]);
   const [submitting, setSubmitting] = useState(false);
   const [readerStatus, setReaderStatus] = useState(sportIdentService.getStatus());
   const [lastCard, setLastCard] = useState<string | null>(null);
-  const [firstNameOptions, setFirstNameOptions] = useState<{ value: string; runner: LocalRunner }[]>([]);
-  const [lastNameOptions, setLastNameOptions] = useState<{ value: string; runner: LocalRunner }[]>([]);
-  const [cardNumberOptions, setCardNumberOptions] = useState<{ value: string; runner: LocalRunner }[]>([]);
+  const [firstNameOptions, setFirstNameOptions] = useState<{ value: string; runner: RunnerRecord }[]>([]);
+  const [lastNameOptions, setLastNameOptions] = useState<{ value: string; runner: RunnerRecord }[]>([]);
+  const [cardNumberOptions, setCardNumberOptions] = useState<{ value: string; runner: RunnerRecord }[]>([]);
+  const [existingEntry, setExistingEntry] = useState<LocalEntry | null>(null);
+  const [isAdditionalClass, setIsAdditionalClass] = useState(false);
+  const [showExistingSearch, setShowExistingSearch] = useState(false);
+  const [existingSearchResults, setExistingSearchResults] = useState<LocalEntry[]>([]);
+  const [additionalNewClasses, setAdditionalNewClasses] = useState<string[]>([]); // For new entries with multiple classes
+  const [showAddNewClass, setShowAddNewClass] = useState(false);
 
   // Load available classes
   useEffect(() => {
@@ -119,26 +128,29 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
     }
   };
 
-  const searchRunnerByCard = () => {
+  const searchRunnerByCard = async () => {
     if (!cardNumber) return;
 
     setLoading(true);
     try {
-      const runner = localRunnerService.searchByCardNumber(cardNumber);
+      await sqliteRunnerDB.initialize();
+      const allRunners = sqliteRunnerDB.getAllRunners();
+      const runner = allRunners.find(r => r.card_number?.toString() === cardNumber);
+      
       if (runner) {
         setFoundRunner(runner);
         // Pre-populate form with found runner data
         form.setFieldsValue({
-          firstName: runner.name.first,
-          lastName: runner.name.last,
+          firstName: runner.first_name,
+          lastName: runner.last_name,
           club: runner.club,
           cardNumber: cardNumber,
-          birthYear: runner.birthYear?.toString(),
+          birthYear: runner.birth_year?.toString(),
           sex: runner.sex,
           phone: runner.phone,
           nationality: runner.nationality
         });
-        message.success(`Found runner: ${runner.name.first} ${runner.name.last}`);
+        message.success(`Found runner: ${runner.first_name} ${runner.last_name}`);
       } else {
         setFoundRunner(null);
         // Still pre-populate the card number
@@ -156,39 +168,55 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
   };
 
   // Auto-complete handlers
-  const handleFirstNameSearch = (searchText: string) => {
+  const handleFirstNameSearch = async (searchText: string) => {
     if (searchText.length >= 2) {
-      const runners = localRunnerService.searchRunners(searchText);
-      const options = runners.map(runner => ({
-        value: runner.name.first,
-        runner: runner
-      }));
-      setFirstNameOptions(options);
+      try {
+        await sqliteRunnerDB.initialize();
+        const runners = sqliteRunnerDB.searchRunners(searchText, 10);
+        const options = runners.map(runner => ({
+          value: runner.first_name,
+          runner: runner
+        }));
+        setFirstNameOptions(options);
+      } catch (error) {
+        console.error('Search error:', error);
+      }
     } else {
       setFirstNameOptions([]);
     }
   };
 
-  const handleLastNameSearch = (searchText: string) => {
+  const handleLastNameSearch = async (searchText: string) => {
     if (searchText.length >= 2) {
-      const runners = localRunnerService.searchRunners(searchText);
-      const options = runners.map(runner => ({
-        value: runner.name.last,
-        runner: runner
-      }));
-      setLastNameOptions(options);
+      try {
+        await sqliteRunnerDB.initialize();
+        const runners = sqliteRunnerDB.searchRunners(searchText, 10);
+        const options = runners.map(runner => ({
+          value: runner.last_name,
+          runner: runner
+        }));
+        setLastNameOptions(options);
+      } catch (error) {
+        console.error('Search error:', error);
+      }
     } else {
       setLastNameOptions([]);
     }
   };
 
-  const handleCardNumberSearch = (searchText: string) => {
+  const handleCardNumberSearch = async (searchText: string) => {
     if (searchText.length >= 3) {
-      const runner = localRunnerService.searchByCardNumber(searchText);
-      if (runner) {
-        setCardNumberOptions([{ value: searchText, runner: runner }]);
-      } else {
-        setCardNumberOptions([]);
+      try {
+        await sqliteRunnerDB.initialize();
+        const allRunners = sqliteRunnerDB.getAllRunners();
+        const runner = allRunners.find(r => r.card_number?.toString().includes(searchText));
+        if (runner) {
+          setCardNumberOptions([{ value: runner.card_number?.toString() || searchText, runner: runner }]);
+        } else {
+          setCardNumberOptions([]);
+        }
+      } catch (error) {
+        console.error('Search error:', error);
       }
     } else {
       setCardNumberOptions([]);
@@ -199,25 +227,40 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
     setFoundRunner(null);
   };
 
-  const handleRunnerSelect = (runner: LocalRunner) => {
+  const handleRunnerSelect = (runner: RunnerRecord) => {
     setFoundRunner(runner);
+    
+    // Check if this runner already has an entry
+    const entries = localEntryService.getAllEntries();
+    const existing = entries.find(e => 
+      e.name.first.toLowerCase() === runner.first_name.toLowerCase() &&
+      e.name.last.toLowerCase() === runner.last_name.toLowerCase() &&
+      e.club.toLowerCase() === runner.club.toLowerCase()
+    );
+    
+    if (existing) {
+      setExistingEntry(existing);
+      const hasMultiple = localEntryService.hasMultipleClasses(existing);
+      const allClasses = localEntryService.getEntryClasses(existing);
+      const classNames = allClasses.map(c => c.className).join(', ');
+      message.info(`Runner already registered for: ${classNames}. You can add them to another class.`);
+    }
+    
     // Auto-populate all form fields when a runner is selected
     // Use setTimeout to ensure the form field is cleared first before setting new value
     setTimeout(() => {
       form.setFieldsValue({
-        firstName: runner.name.first,
-        lastName: runner.name.last,
+        firstName: runner.first_name,
+        lastName: runner.last_name,
         club: runner.club,
-        cardNumber: runner.cardNumber?.toString() || '',
-        birthYear: runner.birthYear?.toString() || '',
+        cardNumber: runner.card_number?.toString() || '',
+        birthYear: runner.birth_year?.toString() || '',
         sex: runner.sex,
         phone: runner.phone || '',
         nationality: runner.nationality || ''
       });
     }, 0);
-    message.success(`Selected runner: ${runner.name.first} ${runner.name.last}`);
-    // Record usage for priority in future searches
-    localRunnerService.recordUsage(runner.id);
+    message.success(`Selected runner: ${runner.first_name} ${runner.last_name}`);
   };
 
 
@@ -239,11 +282,54 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         setSubmitting(false);
         return;
       }
+      
+      // Check if this is an additional class registration
+      if (existingEntry && isAdditionalClass) {
+        // Add to additional classes
+        const selectedClass = classes.find(c => c.id === values.classId);
+        if (!selectedClass) {
+          message.error('Invalid class selection');
+          setSubmitting(false);
+          return;
+        }
+        
+        const updatedEntry = localEntryService.addAdditionalClass(existingEntry.id, {
+          classId: values.classId,
+          className: selectedClass.name,
+          fee: selectedClass.fee
+        });
+        
+        if (updatedEntry) {
+          // Check in for the new class
+          const checkedIn = localEntryService.checkInEntryForClass(
+            updatedEntry.id,
+            values.classId,
+            values.cardNumber
+          );
+          
+          if (checkedIn) {
+            message.success(`Added ${values.firstName} ${values.lastName} to ${selectedClass.name} and checked in!`);
+            
+            if (onRegistrationComplete) {
+              onRegistrationComplete(checkedIn, values.cardNumber);
+            }
+            
+            handleClose();
+          } else {
+            message.error('Failed to check in for new class');
+          }
+        } else {
+          message.error('Failed to add additional class');
+        }
+        
+        setSubmitting(false);
+        return;
+      }
 
       // Create a new local entry (pending -> checked-in)
       const natNum = parseInt(values.nationality || '0', 10);
       const normalizedSex = (!natNum || natNum <= 1) ? values.sex : undefined;
-      const pendingEntry = localEntryService.addEntry({
+      let pendingEntry = localEntryService.addEntry({
         name: { 
           first: values.firstName ? values.firstName.trim() : '', 
           last: values.lastName.trim() 
@@ -260,6 +346,20 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         fee: classes.find(c => c.id === values.classId)?.fee || 0,
         importedFrom: 'manual'
       });
+      
+      // Add additional classes if any
+      for (const classId of additionalNewClasses) {
+        const selectedClass = classes.find(c => c.id === classId);
+        if (selectedClass && classId !== values.classId) {
+          const updated = localEntryService.addAdditionalClass(pendingEntry.id, {
+            classId: classId,
+            className: selectedClass.name,
+            fee: selectedClass.fee
+          });
+          if (updated) pendingEntry = updated;
+        }
+      }
+      
       const addedEntry = localEntryService.checkInEntry(pendingEntry.id, values.cardNumber);
 
       if (addedEntry) {
@@ -267,21 +367,8 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         const natNum = parseInt(values.nationality || '0', 10);
         const isGroup = natNum > 1;
         
-        if (!isGroup && values.firstName) {
-          const runnerData = {
-            name: {
-              first: values.firstName.trim(),
-              last: values.lastName.trim()
-            },
-            club: values.club.trim(),
-            cardNumber: parseInt(values.cardNumber),
-            birthYear: values.birthYear ? parseInt(values.birthYear) : undefined,
-            sex: values.sex,
-            phone: values.phone,
-            nationality: values.nationality
-          };
-          localRunnerService.addRunner(runnerData);
-        }
+        // Runner database is automatically updated through localEntryService.addEntry/updateEntry
+        // which calls sqliteRunnerDB.updateRunnerFromEntry
 
         // Try to submit to MeOS immediately
         try {
@@ -411,7 +498,49 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
   const handleClose = () => {
     form.resetFields();
     setFoundRunner(null);
+    setExistingEntry(null);
+    setIsAdditionalClass(false);
+    setShowExistingSearch(false);
+    setExistingSearchResults([]);
+    setAdditionalNewClasses([]);
+    setShowAddNewClass(false);
     onClose();
+  };
+  
+  const handleSearchExisting = (searchText: string) => {
+    if (searchText.length >= 2) {
+      const entries = localEntryService.getAllEntries();
+      const results = entries.filter(entry =>
+        `${entry.name.first} ${entry.name.last}`.toLowerCase().includes(searchText.toLowerCase()) ||
+        entry.club.toLowerCase().includes(searchText.toLowerCase())
+      ).slice(0, 10);
+      setExistingSearchResults(results);
+    } else {
+      setExistingSearchResults([]);
+    }
+  };
+  
+  const handleSelectExisting = (entry: LocalEntry) => {
+    setExistingEntry(entry);
+    setIsAdditionalClass(true);
+    setShowExistingSearch(false);
+    setExistingSearchResults([]);
+    
+    // Pre-populate form
+    form.setFieldsValue({
+      firstName: entry.name.first,
+      lastName: entry.name.last,
+      club: entry.club,
+      cardNumber: entry.cardNumber,
+      birthYear: entry.birthYear,
+      sex: entry.sex,
+      phone: entry.phone,
+      nationality: entry.nationality
+    });
+    
+    const allClasses = localEntryService.getEntryClasses(entry);
+    const classNames = allClasses.map(c => c.className).join(', ');
+    message.info(`Runner already registered for: ${classNames}. Select a new class to add.`);
   };
 
   const handleClassChange = (value: string) => {
@@ -425,30 +554,123 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
     <Modal
       title={
         <Space>
-          <UserAddOutlined />
-          Same Day Registration
-          {cardNumber && <Tag color="blue">Card {cardNumber}</Tag>}
+          <UserAddOutlined style={{ fontSize: '20px' }} />
+          <Text strong style={{ fontSize: '18px', color: '#000' }}>Same Day Registration</Text>
+          {cardNumber && <Tag color="blue" style={{ fontSize: '14px', fontWeight: 600 }}>Card {cardNumber}</Tag>}
         </Space>
       }
       open={visible}
       onCancel={handleClose}
-      width={600}
+      width={700}
+      styles={{ body: { fontSize: '15px' } }}
       footer={[
-        <Button key="cancel" onClick={handleClose}>
+        <Button 
+          key="cancel" 
+          onClick={handleClose}
+          size="large"
+          style={{ fontWeight: 600 }}
+        >
           Cancel
         </Button>,
-        <Button key="save" onClick={handleSaveOnly} icon={<UserAddOutlined />}>Save (No Check-In)</Button>,
+        !isAdditionalClass && (
+          <Button 
+            key="save" 
+            onClick={handleSaveOnly} 
+            icon={<UserAddOutlined />}
+            size="large"
+            style={{ fontWeight: 600 }}
+          >
+            Save (No Check-In)
+          </Button>
+        ),
         <Button 
           key="submit" 
           type="primary" 
           onClick={handleSubmit} 
           loading={submitting}
           icon={<CheckCircleOutlined />}
+          size="large"
+          style={{ fontWeight: 600, minWidth: 180 }}
         >
-          Register & Check In
+          {isAdditionalClass ? 'Add to Class & Check In' : 'Register & Check In'}
         </Button>
       ]}
     >
+      {/* Button to search for existing runners */}
+      {!existingEntry && !showExistingSearch && (
+        <Card size="small" style={{ marginBottom: '16px', background: '#f0f5ff' }}>
+          <Space>
+            <SearchOutlined />
+            <Text>Need to add a runner to a second class?</Text>
+            <Button 
+              type="link" 
+              size="small"
+              onClick={() => setShowExistingSearch(true)}
+            >
+              Search for existing runner
+            </Button>
+          </Space>
+        </Card>
+      )}
+      
+      {/* Search for existing runners */}
+      {showExistingSearch && (
+        <Card 
+          title="Find Existing Runner" 
+          size="small" 
+          style={{ marginBottom: '16px' }}
+          extra={
+            <Button size="small" onClick={() => {
+              setShowExistingSearch(false);
+              setExistingSearchResults([]);
+            }}>
+              Cancel
+            </Button>
+          }
+        >
+          <Search
+            placeholder="Search by name or club"
+            onChange={(e) => handleSearchExisting(e.target.value)}
+            style={{ marginBottom: existingSearchResults.length > 0 ? '12px' : '0' }}
+          />
+          {existingSearchResults.length > 0 && (
+            <List
+              size="small"
+              dataSource={existingSearchResults}
+              renderItem={(entry) => (
+                <List.Item
+                  actions={[
+                    <Button
+                      key="select"
+                      type="primary"
+                      size="small"
+                      onClick={() => handleSelectExisting(entry)}
+                    >
+                      Select
+                    </Button>
+                  ]}
+                >
+                  <List.Item.Meta
+                    title={`${entry.name.first} ${entry.name.last}`}
+                    description={
+                      <Space>
+                        <Text>{entry.club}</Text>
+                        <Text>•</Text>
+                        {localEntryService.getEntryClasses(entry).map((c, idx) => (
+                          <Tag key={idx} size="small" color={c.status === 'checked-in' ? 'green' : 'blue'}>
+                            {c.className}
+                          </Tag>
+                        ))}
+                      </Space>
+                    }
+                  />
+                </List.Item>
+              )}
+            />
+          )}
+        </Card>
+      )}
+      
       {/* Runner Found Alert */}
       {foundRunner && (
         <Alert
@@ -457,7 +679,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
             <Space>
               <UserOutlined />
               <Text>
-                Found <Text strong>{foundRunner.name.first} {foundRunner.name.last}</Text> from <Text strong>{foundRunner.club}</Text>.
+                Found <Text strong>{foundRunner.first_name} {foundRunner.last_name}</Text> from <Text strong>{foundRunner.club}</Text>.
                 Details have been pre-filled below.
               </Text>
             </Space>
@@ -465,6 +687,41 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
           type="success"
           showIcon
           style={{ marginBottom: '16px' }}
+        />
+      )}
+      
+      {/* Existing Entry with Class Info */}
+      {existingEntry && (
+        <Alert
+          message={
+            <Space>
+              <Text strong>Adding to Additional Class</Text>
+              <Tag color="orange">Multi-Class Runner</Tag>
+            </Space>
+          }
+          description={
+            <div>
+              <Text>
+                <Text strong>{existingEntry.name.first} {existingEntry.name.last}</Text> is currently registered for:
+              </Text>
+              <div style={{ marginTop: '8px', marginBottom: '8px' }}>
+                {localEntryService.getEntryClasses(existingEntry).map((classReg) => (
+                  <Tag key={classReg.classId} color={classReg.status === 'checked-in' ? 'green' : 'blue'}>
+                    {classReg.className} ({classReg.status})
+                  </Tag>
+                ))}
+              </div>
+              <Text type="secondary">Select a new class below to add them to an additional class.</Text>
+            </div>
+          }
+          type="info"
+          showIcon
+          style={{ marginBottom: '16px' }}
+          closable
+          onClose={() => {
+            setExistingEntry(null);
+            setIsAdditionalClass(false);
+          }}
         />
       )}
 
@@ -490,6 +747,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
       <Form
         form={form}
         layout="vertical"
+        size="large"
         initialValues={{
           cardNumber: cardNumber || ''
         }}
@@ -522,7 +780,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
             >
               <AutoComplete
                 options={firstNameOptions.map((option, index) => ({
-                  value: `${option.runner.name.first} ${option.runner.name.last} (${option.runner.club})`,
+                  value: `${option.runner.first_name} ${option.runner.last_name} (${option.runner.club})`,
                   key: option.runner.id,
                   runnerIndex: index
                 }))}
@@ -530,7 +788,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
                 onSelect={(value) => {
                   // Find the runner based on the selected display value
                   const selectedOption = firstNameOptions.find(opt => 
-                    `${opt.runner.name.first} ${opt.runner.name.last} (${opt.runner.club})` === value
+                    `${opt.runner.first_name} ${opt.runner.last_name} (${opt.runner.club})` === value
                   );
                   if (selectedOption) {
                     handleRunnerSelect(selectedOption.runner);
@@ -555,7 +813,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
             >
               <AutoComplete
                 options={lastNameOptions.map((option, index) => ({
-                  value: `${option.runner.name.first} ${option.runner.name.last} (${option.runner.club})`,
+                  value: `${option.runner.first_name} ${option.runner.last_name} (${option.runner.club})`,
                   key: option.runner.id,
                   runnerIndex: index
                 }))}
@@ -563,7 +821,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
                 onSelect={(value) => {
                   // Find the runner based on the selected display value
                   const selectedOption = lastNameOptions.find(opt => 
-                    `${opt.runner.name.first} ${opt.runner.name.last} (${opt.runner.club})` === value
+                    `${opt.runner.first_name} ${opt.runner.last_name} (${opt.runner.club})` === value
                   );
                   if (selectedOption) {
                     handleRunnerSelect(selectedOption.runner);
@@ -600,7 +858,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
             >
               <AutoComplete
                 options={cardNumberOptions.map((option, index) => ({
-                  value: `${option.value} - ${option.runner.name.first} ${option.runner.name.last} (${option.runner.club})`,
+                  value: `${option.value} - ${option.runner.first_name} ${option.runner.last_name} (${option.runner.club})`,
                   key: option.runner.id,
                   runnerIndex: index
                 }))}
@@ -608,7 +866,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
                 onSelect={(value) => {
                   // Find the runner based on the selected display value
                   const selectedOption = cardNumberOptions.find(opt => 
-                    `${opt.value} - ${opt.runner.name.first} ${opt.runner.name.last} (${opt.runner.club})` === value
+                    `${opt.value} - ${opt.runner.first_name} ${opt.runner.last_name} (${opt.runner.club})` === value
                   );
                   if (selectedOption) {
                     handleRunnerSelect(selectedOption.runner);
@@ -643,7 +901,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
-              label="Class"
+              label="Primary Class"
               name="classId"
               rules={[
                 {
@@ -668,6 +926,81 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
                 ))}
               </Select>
             </Form.Item>
+            
+            {/* Additional Classes for new entries (not for additional class mode) */}
+            {!isAdditionalClass && (
+              <div style={{ marginTop: 8 }}>
+                {additionalNewClasses.length > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <Text type="secondary" style={{ fontSize: '12px' }}>Also registering for:</Text>
+                    <div style={{ marginTop: 4 }}>
+                      {additionalNewClasses.map((classId, idx) => {
+                        const className = classes.find(c => c.id === classId)?.name || classId;
+                        return (
+                          <Tag 
+                            key={idx} 
+                            color="blue"
+                            closable
+                            onClose={() => {
+                              setAdditionalNewClasses(prev => prev.filter((_, i) => i !== idx));
+                            }}
+                            style={{ marginBottom: 4 }}
+                          >
+                            {className}
+                          </Tag>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                
+                {!showAddNewClass && (
+                  <Button 
+                    type="link" 
+                    icon={<PlusOutlined />} 
+                    onClick={() => setShowAddNewClass(true)}
+                    size="small"
+                    style={{ paddingLeft: 0 }}
+                  >
+                    Add another class
+                  </Button>
+                )}
+                
+                {showAddNewClass && (
+                  <Space.Compact style={{ width: '100%', marginTop: 4 }}>
+                    <Select 
+                      placeholder="Select additional class"
+                      style={{ flex: 1 }}
+                      showSearch
+                      optionFilterProp="children"
+                      size="small"
+                      onChange={(value) => {
+                        const primaryClassId = form.getFieldValue('classId');
+                        
+                        if (value === primaryClassId) {
+                          message.warning('This is already the primary class');
+                          return;
+                        }
+                        if (additionalNewClasses.includes(value)) {
+                          message.warning('This class is already added');
+                          return;
+                        }
+                        
+                        setAdditionalNewClasses(prev => [...prev, value]);
+                        setShowAddNewClass(false);
+                      }}
+                    >
+                      {classes.map(cls => (
+                        <Option key={cls.id} value={cls.id}>
+                          {cls.name} (${cls.fee})
+                        </Option>
+                      ))}
+                    </Select>
+                    <Button size="small" onClick={() => setShowAddNewClass(false)}>Cancel</Button>
+                  </Space.Compact>
+                )}
+              </div>
+            )}
           </Col>
           <Col span={12}>
             <Form.Item 

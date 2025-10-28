@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Form, Input, Select, Row, Col, Space, Button, Typography, message, Alert, Checkbox } from 'antd';
-import { IdcardOutlined, LoginOutlined } from '@ant-design/icons';
-import { localEntryService, type LocalEntry } from '../services/localEntryService';
+import { Modal, Form, Input, Select, Row, Col, Space, Button, Typography, message, Alert, Checkbox, Tag, Divider } from 'antd';
+import { IdcardOutlined, LoginOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { localEntryService, type LocalEntry, type ClassRegistration } from '../services/localEntryService';
 import { meosClassService, type MeosClass } from '../services/meosClassService';
 import { meosApi } from '../services/meosApi';
 import { sportIdentService, type SICardReadEvent } from '../services/sportIdentService';
@@ -25,6 +25,8 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
   const [saving, setSaving] = useState(false);
   const [readerStatus, setReaderStatus] = useState(sportIdentService.getStatus());
   const [lastCard, setLastCard] = useState<string | null>(null);
+  const [additionalClasses, setAdditionalClasses] = useState<string[]>([]); // Class IDs for additional classes
+  const [showAddClass, setShowAddClass] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -60,6 +62,13 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
             classIdToUse = classByName.id.toString();
           }
         }
+      }
+      
+      // Load existing additional classes
+      if (entry.additionalClasses && entry.additionalClasses.length > 0) {
+        setAdditionalClasses(entry.additionalClasses.map(c => c.classId));
+      } else {
+        setAdditionalClasses([]);
       }
       
       form.setFieldsValue({
@@ -108,22 +117,45 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
     const values = await form.validateFields();
     setSaving(true);
     try {
-    const updated = localEntryService.updateEntry(entry.id, {
-      name: { first: values.firstName, last: values.lastName },
-      club: values.club,
-      classId: values.classId,
-      className: classes.find(c => c.id.toString() === values.classId)?.name || entry.className,
-      cardNumber: values.cardNumber,
-      birthYear: values.birthYear,
-      sex: values.sex,
-      phone: values.phone,
-      email: values.email,
-      nationality: values.nationality,
-      isHiredCard: values.isHiredCard || false,
-    });
+      // First update the entry
+      let updated = localEntryService.updateEntry(entry.id, {
+        name: { first: values.firstName, last: values.lastName },
+        club: values.club,
+        classId: values.classId,
+        className: classes.find(c => c.id.toString() === values.classId)?.name || entry.className,
+        cardNumber: values.cardNumber,
+        birthYear: values.birthYear,
+        sex: values.sex,
+        phone: values.phone,
+        email: values.email,
+        nationality: values.nationality,
+        isHiredCard: values.isHiredCard || false,
+      });
+      
+      // Handle additional classes
       if (updated) {
-        onUpdated(updated);
-        message.success('Entry updated');
+        // Get existing additional classes
+        const existingAdditional = (entry.additionalClasses || []).map(c => c.classId);
+        
+        // Add new classes
+        for (const classId of additionalClasses) {
+          if (!existingAdditional.includes(classId) && classId !== values.classId) {
+            const selectedClass = classes.find(c => c.id.toString() === classId);
+            if (selectedClass) {
+              updated = localEntryService.addAdditionalClass(updated.id, {
+                classId: classId,
+                className: selectedClass.name,
+                fee: 0 // Fee can be added later if needed
+              });
+            }
+          }
+        }
+        
+        if (updated) {
+          onUpdated(updated);
+          message.success('Entry updated');
+          onClose(); // Close modal after successful save
+        }
       }
     } finally {
       setSaving(false);
@@ -205,30 +237,31 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
     <Modal
       title={
         <Space>
-          <Text>Edit Entry</Text>
+          <Text strong style={{ fontSize: '18px', color: '#000' }}>Edit Entry</Text>
         </Space>
       }
       open={open}
       onCancel={onClose}
       footer={null}
-      width={720}
+      width={800}
       destroyOnHidden
       forceRender
       key={entry?.id || 'new'}
+      styles={{ body: { fontSize: '15px' } }}
     >
       <>
         <Alert 
           type={readerStatus.connected ? 'success' : 'warning'} 
           showIcon 
-          style={{ marginBottom: 12 }}
-          message={readerStatus.connected ? 'Card Reader Connected' : 'Card Reader Disconnected'}
+          style={{ marginBottom: 16, fontSize: '15px', fontWeight: 500 }}
+          message={<span style={{ fontSize: '15px', fontWeight: 600 }}>{readerStatus.connected ? 'Card Reader Connected' : 'Card Reader Disconnected'}</span>}
           action={!readerStatus.connected ? (
             <Button size="small" onClick={async ()=>{try{await sportIdentService.connect(); setReaderStatus(sportIdentService.getStatus());}catch{}}}>
               Connect
             </Button>
           ) : undefined}
         />
-        {open && <Form form={form} layout="vertical" key={`form-${entry?.id || 'new'}`}>
+        {open && <Form form={form} layout="vertical" key={`form-${entry?.id || 'new'}`} size="large">
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item 
@@ -278,7 +311,20 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
           </Row>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item label="Class" name="classId" rules={[{ required: true }]}>
+              <Form.Item 
+                label={
+                  <span>
+                    Primary Class
+                    {entry?.status === 'checked-in' && (
+                      <Text type="secondary" style={{ fontSize: '11px', marginLeft: 4 }}>
+                        (checked-in)
+                      </Text>
+                    )}
+                  </span>
+                } 
+                name="classId" 
+                rules={[{ required: true }]}
+              >
                 <Select showSearch optionFilterProp="children">
                   {classes.map(c => (
                     <Option key={c.id} value={c.id.toString()}>{c.name}</Option>
@@ -290,6 +336,116 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
               <Form.Item label="Card Number" name="cardNumber" rules={[{ required: true }]}>
                 <Input addonAfter={<IdcardOutlined onClick={() => { if (lastCard) { form.setFieldsValue({ cardNumber: lastCard }); } else { applyLastCard(); } }} />} />
               </Form.Item>
+            </Col>
+          </Row>
+          
+          {/* Additional Classes Section */}
+          <Divider orientation="left" style={{ marginTop: 8, marginBottom: 8 }}>Additional Classes</Divider>
+          <Row gutter={16}>
+            <Col span={24}>
+              {(entry?.additionalClasses && entry.additionalClasses.length > 0) && (
+                <div style={{ marginBottom: 12 }}>
+                  <Text type="secondary">Current additional classes:</Text>
+                  <div style={{ marginTop: 8 }}>
+                    {entry.additionalClasses.map((classReg, idx) => (
+                      <Tag 
+                        key={idx} 
+                        color={classReg.status === 'checked-in' ? 'green' : 'blue'} 
+                        closable={classReg.status !== 'checked-in'}
+                        onClose={() => {
+                          if (classReg.status === 'checked-in') {
+                            message.warning('Cannot remove checked-in class');
+                            return;
+                          }
+                          // Remove this additional class
+                          const updated = entry.additionalClasses?.filter(c => c.classId !== classReg.classId);
+                          const success = localEntryService.updateEntry(entry.id, { additionalClasses: updated });
+                          if (success) {
+                            message.success(`Removed ${classReg.className}`);
+                            onUpdated(success);
+                          }
+                        }}
+                        style={{ marginBottom: 4 }}
+                      >
+                        {classReg.className} ({classReg.status})
+                      </Tag>
+                    ))}
+                  </div>
+                  {entry.additionalClasses.some(c => c.status === 'checked-in') && (
+                    <Text type="secondary" style={{ fontSize: '12px', display: 'block', marginTop: 4 }}>
+                      Note: Checked-in classes cannot be removed
+                    </Text>
+                  )}
+                </div>
+              )}
+              
+              {additionalClasses.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <Text type="secondary">New classes to add:</Text>
+                  <div style={{ marginTop: 8 }}>
+                    {additionalClasses.map((classId, idx) => {
+                      const className = classes.find(c => c.id.toString() === classId)?.name || classId;
+                      return (
+                        <Tag 
+                          key={idx} 
+                          color="orange"
+                          closable
+                          onClose={() => {
+                            setAdditionalClasses(prev => prev.filter((_, i) => i !== idx));
+                          }}
+                          style={{ marginBottom: 4 }}
+                        >
+                          {className} (new)
+                        </Tag>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              
+              {!showAddClass && (
+                <Button 
+                  type="dashed" 
+                  icon={<PlusOutlined />} 
+                  onClick={() => setShowAddClass(true)}
+                  size="small"
+                >
+                  Add Another Class
+                </Button>
+              )}
+              
+              {showAddClass && (
+                <Space.Compact style={{ width: '100%' }}>
+                  <Select 
+                    placeholder="Select additional class"
+                    style={{ flex: 1 }}
+                    showSearch
+                    optionFilterProp="children"
+                    onChange={(value) => {
+                      const primaryClassId = form.getFieldValue('classId');
+                      const existingClasses = (entry?.additionalClasses || []).map(c => c.classId);
+                      
+                      if (value === primaryClassId) {
+                        message.warning('This is already the primary class');
+                        return;
+                      }
+                      if (existingClasses.includes(value) || additionalClasses.includes(value)) {
+                        message.warning('This class is already added');
+                        return;
+                      }
+                      
+                      setAdditionalClasses(prev => [...prev, value]);
+                      setShowAddClass(false);
+                      message.success('Class added - click Save to confirm');
+                    }}
+                  >
+                    {classes.map(c => (
+                      <Option key={c.id} value={c.id.toString()}>{c.name}</Option>
+                    ))}
+                  </Select>
+                  <Button onClick={() => setShowAddClass(false)}>Cancel</Button>
+                </Space.Compact>
+              )}
             </Col>
           </Row>
           <Row gutter={16}>
@@ -342,10 +498,23 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
           </Row>
         </Form>}
           
-        <Row justify="end" style={{ marginTop: 16 }}>
-          <Space>
-            <Button onClick={handleSave} loading={saving}>Save</Button>
-            <Button type="primary" icon={<LoginOutlined />} onClick={handleCheckIn}>
+        <Row justify="end" style={{ marginTop: 24 }}>
+          <Space size="middle">
+            <Button 
+              onClick={handleSave} 
+              loading={saving} 
+              size="large"
+              style={{ fontWeight: 600, minWidth: 100 }}
+            >
+              Save
+            </Button>
+            <Button 
+              type="primary" 
+              icon={<LoginOutlined />} 
+              onClick={handleCheckIn}
+              size="large"
+              style={{ fontWeight: 600, minWidth: 140 }}
+            >
               Check In
             </Button>
           </Space>

@@ -8,6 +8,10 @@ export default defineConfig({
   plugins: [
     react()
   ],
+  assetsInclude: ['**/*.sql'], // Include SQL files as assets
+  build: {
+    assetsInlineLimit: 0, // Don't inline SQL files
+  },
   server: {
     port: 5174,
     strictPort: false, // Try next available port if 5174 is busy

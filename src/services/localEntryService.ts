@@ -2,7 +2,17 @@
 // Manages entries locally until they are checked in to MeOS
 
 import { meosClassService } from './meosClassService';
-import { localRunnerService } from './localRunnerService';
+import { sqliteRunnerDB } from './sqliteRunnerDatabaseService';
+
+export interface ClassRegistration {
+  classId: string;
+  className: string;
+  fee: number;
+  status: 'pending' | 'checked-in' | 'started' | 'finished';
+  checkedInAt?: Date;
+  submittedToMeosAt?: Date;
+  meosEntryId?: string; // Track MeOS entry ID if known for this class
+}
 
 export interface LocalEntry {
   id: string;
@@ -18,7 +28,7 @@ export interface LocalEntry {
   phone?: string;
   email?: string;
   
-  // Competition info
+  // Competition info - Primary class (for backward compatibility)
   classId: string;
   className: string;
   cardNumber: string;
@@ -30,6 +40,9 @@ export interface LocalEntry {
   checkedInAt?: Date;
   submittedToMeosAt?: Date;
   meosEntryId?: string; // Track MeOS entry ID if known
+  
+  // Multi-class support
+  additionalClasses?: ClassRegistration[]; // Additional class registrations for the same runner
   
   // Import info
   importedFrom: 'jotform' | 'manual' | 'other';
@@ -123,6 +136,22 @@ class LocalEntryService {
     entries.push(newEntry);
     this.saveEntries(entries);
     
+    // Update runner database
+    try {
+      const cardNum = newEntry.cardNumber ? parseInt(newEntry.cardNumber.toString()) : undefined;
+      sqliteRunnerDB.updateRunnerFromEntry(
+        newEntry.name.first,
+        newEntry.name.last,
+        newEntry.birthYear ? parseInt(newEntry.birthYear.toString()) : undefined,
+        newEntry.sex as 'M' | 'F' | undefined,
+        newEntry.club,
+        cardNum && !isNaN(cardNum) && cardNum > 0 ? cardNum : undefined,
+        newEntry.isHiredCard || false
+      );
+    } catch (error) {
+      console.error('[LocalEntry] Failed to update runner DB:', error);
+    }
+    
     console.log('Added local entry:', newEntry);
     return newEntry;
   }
@@ -178,6 +207,24 @@ class LocalEntryService {
     };
     
     this.saveEntries(entries);
+    
+    // Update runner database
+    const updated = entries[index];
+    try {
+      const cardNum = updated.cardNumber ? parseInt(updated.cardNumber.toString()) : undefined;
+      sqliteRunnerDB.updateRunnerFromEntry(
+        updated.name.first,
+        updated.name.last,
+        updated.birthYear ? parseInt(updated.birthYear.toString()) : undefined,
+        updated.sex as 'M' | 'F' | undefined,
+        updated.club,
+        cardNum && !isNaN(cardNum) && cardNum > 0 ? cardNum : undefined,
+        updated.isHiredCard || false
+      );
+    } catch (error) {
+      console.error('[LocalEntry] Failed to update runner DB:', error);
+    }
+    
     return entries[index];
   }
 
@@ -196,6 +243,110 @@ class LocalEntryService {
     }
     
     return this.updateEntry(id, updates);
+  }
+
+  /**
+   * Add an additional class registration to an existing entry
+   */
+  addAdditionalClass(id: string, classRegistration: Omit<ClassRegistration, 'status' | 'checkedInAt' | 'submittedToMeosAt'>): LocalEntry | null {
+    const entries = this.getAllEntries();
+    const index = entries.findIndex(e => e.id === id);
+    
+    if (index === -1) return null;
+    
+    const entry = entries[index];
+    
+    // Check if runner is already registered for this class
+    const existingClasses = entry.additionalClasses || [];
+    const alreadyRegistered = existingClasses.some(c => c.classId === classRegistration.classId) ||
+                              entry.classId === classRegistration.classId;
+    
+    if (alreadyRegistered) {
+      console.warn(`Runner ${entry.name.first} ${entry.name.last} is already registered for class ${classRegistration.className}`);
+      return entry;
+    }
+    
+    const newClassReg: ClassRegistration = {
+      ...classRegistration,
+      status: 'pending',
+    };
+    
+    entries[index] = {
+      ...entry,
+      additionalClasses: [...existingClasses, newClassReg]
+    };
+    
+    this.saveEntries(entries);
+    console.log(`Added class ${classRegistration.className} to ${entry.name.first} ${entry.name.last}`);
+    return entries[index];
+  }
+
+  /**
+   * Check in an entry for a specific class (supports multi-class runners)
+   */
+  checkInEntryForClass(id: string, classId: string, actualCardNumber?: string): LocalEntry | null {
+    const entries = this.getAllEntries();
+    const index = entries.findIndex(e => e.id === id);
+    
+    if (index === -1) return null;
+    
+    const entry = entries[index];
+    
+    // Update card number if provided
+    if (actualCardNumber && actualCardNumber.trim() !== '') {
+      entry.cardNumber = actualCardNumber.trim();
+    }
+    
+    // Check if this is the primary class
+    if (entry.classId === classId) {
+      entry.status = 'checked-in';
+      entry.checkedInAt = new Date();
+    } else {
+      // Check if this is an additional class
+      const additionalClasses = entry.additionalClasses || [];
+      const classIndex = additionalClasses.findIndex(c => c.classId === classId);
+      
+      if (classIndex !== -1) {
+        additionalClasses[classIndex] = {
+          ...additionalClasses[classIndex],
+          status: 'checked-in',
+          checkedInAt: new Date()
+        };
+        entry.additionalClasses = additionalClasses;
+      } else {
+        console.warn(`Class ${classId} not found for runner ${entry.name.first} ${entry.name.last}`);
+        return null;
+      }
+    }
+    
+    entries[index] = entry;
+    this.saveEntries(entries);
+    console.log(`Checked in ${entry.name.first} ${entry.name.last} for class ${classId}`);
+    return entries[index];
+  }
+
+  /**
+   * Get all classes (primary + additional) for an entry
+   */
+  getEntryClasses(entry: LocalEntry): ClassRegistration[] {
+    const primaryClass: ClassRegistration = {
+      classId: entry.classId,
+      className: entry.className,
+      fee: entry.fee,
+      status: entry.status,
+      checkedInAt: entry.checkedInAt,
+      submittedToMeosAt: entry.submittedToMeosAt,
+      meosEntryId: entry.meosEntryId
+    };
+    
+    return [primaryClass, ...(entry.additionalClasses || [])];
+  }
+
+  /**
+   * Check if an entry has multiple class registrations
+   */
+  hasMultipleClasses(entry: LocalEntry): boolean {
+    return (entry.additionalClasses && entry.additionalClasses.length > 0) || false;
   }
 
   /**
@@ -917,11 +1068,9 @@ class LocalEntryService {
       }
     }
     
-    // Automatically learn from imported entries to build master runner database
-    if (processedEntries.length > 0) {
-      const { imported, updated } = localRunnerService.bulkLearnFromEntries(processedEntries);
-      console.log(`[Runner Database] Auto-learned from OE12 import: ${imported} new runners, ${updated} updated`);
-    }
+    // Runner database is automatically updated through addEntry/updateEntry calls
+    // which call sqliteRunnerDB.updateRunnerFromEntry for each entry
+    console.log(`[Runner Database] Updated SQLite database with ${processedEntries.length} entries from OE12 import`);
     
     console.log(`Processed ${processedEntries.length} entries from OE12: ${newCount} new, ${updatedCount} updated`);
 
@@ -1039,11 +1188,9 @@ class LocalEntryService {
       }
     }
     
-    // Automatically learn from imported entries to build master runner database
-    if (processedEntries.length > 0) {
-      const { imported, updated } = localRunnerService.bulkLearnFromEntries(processedEntries);
-      console.log(`[Runner Database] Auto-learned from Jotform import: ${imported} new runners, ${updated} updated`);
-    }
+    // Runner database is automatically updated through addEntry/updateEntry calls
+    // which call sqliteRunnerDB.updateRunnerFromEntry for each entry
+    console.log(`[Runner Database] Updated SQLite database with ${processedEntries.length} entries from Jotform import`);
     
     console.log(`Processed ${processedEntries.length} entries from Jotform: ${newCount} new, ${updatedCount} updated`);
 
