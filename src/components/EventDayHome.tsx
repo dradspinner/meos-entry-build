@@ -593,7 +593,7 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
                             }
                           } else {
                             // Removing an additional class
-                            const updated = e.additionalClasses?.filter(c => c.classId !== classReg.classId);
+                            const updated = e.additionalClasses?.filter((c: ClassRegistration) => c.classId !== classReg.classId);
                             const success = localEntryService.updateEntry(e.id, { additionalClasses: updated });
                             if (success) {
                               message.success(`Removed ${e.name.first} ${e.name.last} from ${classReg.className}`);
@@ -651,8 +651,8 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
                       if (upd) { message.success('Set to pending'); refresh(); }
                     } else {
                       // Additional class
-                      const updated = e.additionalClasses?.map(c => 
-                        c.classId === classReg.classId 
+                      const updated = e.additionalClasses?.map((c: ClassRegistration) => 
+                        c.classId === classReg.classId
                           ? { ...c, status: 'pending' as const, checkedInAt: undefined, submittedToMeosAt: undefined }
                           : c
                       );

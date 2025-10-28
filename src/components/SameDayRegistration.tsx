@@ -235,7 +235,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
     const existing = entries.find(e => 
       e.name.first.toLowerCase() === runner.first_name.toLowerCase() &&
       e.name.last.toLowerCase() === runner.last_name.toLowerCase() &&
-      e.club.toLowerCase() === runner.club.toLowerCase()
+      e.club.toLowerCase() === (runner.club || '').toLowerCase()
     );
     
     if (existing) {
@@ -533,7 +533,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
       club: entry.club,
       cardNumber: entry.cardNumber,
       birthYear: entry.birthYear,
-      sex: entry.sex,
+      sex: entry.sex as 'M' | 'F' | undefined,
       phone: entry.phone,
       nationality: entry.nationality
     });
@@ -657,7 +657,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
                         <Text>{entry.club}</Text>
                         <Text>•</Text>
                         {localEntryService.getEntryClasses(entry).map((c, idx) => (
-                          <Tag key={idx} size="small" color={c.status === 'checked-in' ? 'green' : 'blue'}>
+                          <Tag key={idx} color={c.status === 'checked-in' ? 'green' : 'blue'}>
                             {c.className}
                           </Tag>
                         ))}

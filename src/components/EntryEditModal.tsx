@@ -141,7 +141,7 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
         for (const classId of additionalClasses) {
           if (!existingAdditional.includes(classId) && classId !== values.classId) {
             const selectedClass = classes.find(c => c.id.toString() === classId);
-            if (selectedClass) {
+            if (selectedClass && updated) {
               updated = localEntryService.addAdditionalClass(updated.id, {
                 classId: classId,
                 className: selectedClass.name,
