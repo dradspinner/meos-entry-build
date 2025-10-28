@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Seed Database</title>
+</head>
+<body>
+  <h1>Test Seed Database Loading</h1>
+  <div id="status"></div>
+  <br>
+  <button onclick="checkDB()">Check Current Database</button>
+  <button onclick="clearDB()">Clear Database (Test Seed Load)</button>
+  <button onclick="testSeedLoad()">Test Seed Database Load</button>
+
+  <script>
+    function checkDB() {
+      const status = document.getElementById('status');
+      const dbData = localStorage.getItem('sqlite_runner_db');
+      
+      if (dbData) {
+        status.innerHTML = '<p style="color: green;">Database exists in localStorage. Size: ' + (dbData.length / 1024).toFixed(2) + ' KB</p>';
+      } else {
+        status.innerHTML = '<p style="color: orange;">No database in localStorage</p>';
+      }
+    }
+    
+    function clearDB() {
+      if (confirm('This will clear your SQLite database from localStorage. Are you sure?')) {
+        localStorage.removeItem('sqlite_runner_db');
+        document.getElementById('status').innerHTML = '<p style="color: orange;">Database cleared! Now reload the app to test seed loading.</p>';
+      }
+    }
+    
+    async function testSeedLoad() {
+      const status = document.getElementById('status');
+      
+      try {
+        const response = await fetch('/runner_database_seed.db');
+        if (response.ok) {
+          const size = parseInt(response.headers.get('content-length') || '0');
+          status.innerHTML = '<p style="color: green;">✓ Seed database found! Size: ' + (size / 1024).toFixed(2) + ' KB</p>';
+        } else {
+          status.innerHTML = '<p style="color: red;">✗ Seed database NOT found at /runner_database_seed.db</p>';
+        }
+      } catch (error) {
+        status.innerHTML = '<p style="color: red;">✗ Error checking seed database: ' + error.message + '</p>';
+      }
+    }
+    
+    // Auto-check on load
+    window.onload = () => {
+      checkDB();
+      testSeedLoad();
+    };
+  </script>
+</body>
+</html>
