@@ -69,7 +69,12 @@ class SQLiteRunnerDatabaseService {
         const buffer = this.base64ToUint8Array(savedDb);
         this.db = new this.SQL.Database(buffer);
       } else {
-        this.db = new this.SQL.Database();
+        // No saved database - try to load seed database
+        const seedLoaded = await this.loadSeedDatabase();
+        if (!seedLoaded) {
+          // Create empty database
+          this.db = new this.SQL.Database();
+        }
       }
 
       // Run schema creation (CREATE IF NOT EXISTS is safe to run multiple times)
@@ -78,7 +83,8 @@ class SQLiteRunnerDatabaseService {
       }
 
       this.initialized = true;
-      console.log('[SQLiteDB] ✓ Database initialized');
+      const stats = this.getStats();
+      console.log(`[SQLiteDB] ✓ Database initialized with ${stats.totalRunners} runners`);
 
       // Auto-save every 30 seconds
       setInterval(() => this.saveToLocalStorage(), 30000);
@@ -118,6 +124,34 @@ class SQLiteRunnerDatabaseService {
    */
   save(): void {
     this.saveToLocalStorage();
+  }
+
+  /**
+   * Load seed database from bundled file
+   */
+  private async loadSeedDatabase(): Promise<boolean> {
+    try {
+      // Try to fetch seed database from public folder
+      const response = await fetch('/runner_database_seed.db');
+      if (!response.ok) {
+        console.log('[SQLiteDB] No seed database found');
+        return false;
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const data = new Uint8Array(arrayBuffer);
+      
+      this.db = new this.SQL.Database(data);
+      console.log('[SQLiteDB] ✓ Loaded seed database');
+      
+      // Save to localStorage so it persists
+      this.saveToLocalStorage();
+      
+      return true;
+    } catch (error) {
+      console.log('[SQLiteDB] Failed to load seed database:', error);
+      return false;
+    }
   }
 
   /**

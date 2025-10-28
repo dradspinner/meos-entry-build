@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Export SQLite Database</title>
+</head>
+<body>
+  <h1>Export SQLite Database from localStorage</h1>
+  <button onclick="exportDB()">Export Database</button>
+  <div id="status"></div>
+
+  <script>
+    function exportDB() {
+      const status = document.getElementById('status');
+      
+      try {
+        // Get the SQLite database from localStorage
+        const dbData = localStorage.getItem('sqlite_runner_db');
+        
+        if (!dbData) {
+          status.innerHTML = '<p style="color: red;">No SQLite database found in localStorage!</p>';
+          return;
+        }
+        
+        status.innerHTML = '<p>Database found! Size: ' + (dbData.length / 1024).toFixed(2) + ' KB</p>';
+        
+        // Create a blob and download
+        const blob = new Blob([dbData], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'runner_database_seed.db';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        status.innerHTML += '<p style="color: green;">Database exported as runner_database_seed.db!</p>';
+      } catch (error) {
+        status.innerHTML = '<p style="color: red;">Error: ' + error.message + '</p>';
+      }
+    }
+  </script>
+</body>
+</html>
