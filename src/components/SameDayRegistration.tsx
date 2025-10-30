@@ -604,7 +604,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
       open={visible}
       onCancel={handleClose}
       width={700}
-      styles={{ body: { fontSize: '15px' } }}
+      styles={{ body: { fontSize: '14px', maxHeight: '75vh', overflowY: 'auto', padding: '16px 20px' } }}
       footer={[
         <Button 
           key="cancel" 
@@ -640,7 +640,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
     >
       {/* Button to search for existing runners */}
       {!existingEntry && !showExistingSearch && (
-        <Card size="small" style={{ marginBottom: '16px', background: '#f0f5ff' }}>
+        <Card size="small" style={{ marginBottom: '10px', background: '#f0f5ff' }}>
           <Space>
             <SearchOutlined />
             <Text>Need to add a runner to a second class?</Text>
@@ -660,7 +660,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         <Card 
           title="Find Existing Runner" 
           size="small" 
-          style={{ marginBottom: '16px' }}
+          style={{ marginBottom: '10px' }}
           extra={
             <Button size="small" onClick={() => {
               setShowExistingSearch(false);
@@ -728,7 +728,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
           }
           type="success"
           showIcon
-          style={{ marginBottom: '16px' }}
+          style={{ marginBottom: '10px' }}
         />
       )}
       
@@ -758,7 +758,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
           }
           type="info"
           showIcon
-          style={{ marginBottom: '16px' }}
+          style={{ marginBottom: '10px' }}
           closable
           onClose={() => {
             setExistingEntry(null);
@@ -782,14 +782,14 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
           }
           type="info"
           showIcon
-          style={{ marginBottom: '16px' }}
+          style={{ marginBottom: '10px' }}
         />
       )}
 
       <Form
         form={form}
         layout="vertical"
-        size="large"
+        size="small"
         initialValues={{
           cardNumber: cardNumber || ''
         }}
@@ -798,7 +798,7 @@ const SameDayRegistration: React.FC<SameDayRegistrationProps> = ({
         <Alert 
           type={readerStatus.connected ? 'success' : 'warning'} 
           showIcon 
-          style={{ marginBottom: 12 }}
+          style={{ marginBottom: 8, padding: '4px 10px', fontSize: '12px' }}
           message={readerStatus.connected ? 'Card Reader Connected' : 'Card Reader Disconnected'}
           action={!readerStatus.connected ? (<Button size="small" onClick={async ()=>{try{await sportIdentService.connect(); setReaderStatus(sportIdentService.getStatus());}catch{}}}>Connect</Button>) : undefined}
         />

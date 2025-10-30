@@ -110,13 +110,11 @@ const EventDayCheckIn: React.FC<EventDayCheckInProps> = ({
       const classData = await meosClassService.getClasses();
       setClasses(classData);
     } catch (error) {
-      console.error('Failed to load classes:', error);
+      // Silently handle error - classes will remain empty
     }
   };
 
   const handleCardRead = async (card: SICard) => {
-    console.log('[EventDayCheckIn] Card read:', card);
-    
     const cardNumber = card.cardNumber.toString();
     setWorkflowState(prev => ({ ...prev, scannedCard: card }));
 
@@ -148,11 +146,11 @@ const EventDayCheckIn: React.FC<EventDayCheckInProps> = ({
       if (!isInMeos) {
         setRentalCardWarnings(prev => [
           ...prev,
-          `⚠️ Card ${cardNumber} is not in MeOS hired card database. Sync needed.`
+          `Card ${cardNumber} is not in MeOS hired card database. Sync needed.`
         ]);
       }
     } catch (error) {
-      console.warn('Could not check rental card status:', error);
+      // Silently handle error
     }
   };
 

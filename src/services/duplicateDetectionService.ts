@@ -104,8 +104,6 @@ class DuplicateDetectionService {
    * Find potential duplicate runners
    */
   findDuplicates(runners: any[], threshold: number = 85): DuplicateGroup[] {
-    console.log(`[DuplicateDetection] Analyzing ${runners.length} runners for duplicates...`);
-    
     const duplicateGroups: DuplicateGroup[] = [];
     const processed = new Set<string>();
     
@@ -184,8 +182,6 @@ class DuplicateDetectionService {
     
     // Sort by similarity (highest first)
     duplicateGroups.sort((a, b) => b.similarity - a.similarity);
-    
-    console.log(`[DuplicateDetection] Found ${duplicateGroups.length} potential duplicate groups`);
     
     return duplicateGroups;
   }

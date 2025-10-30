@@ -187,11 +187,23 @@ const EventDayHome: React.FC<EventDayHomeProps> = ({ onBack, onBackToMain }) => 
 
   // SQLite database is now used and auto-initializes on demand
 
-  const handleOpenLiveResults = () => {
-    // Open live results in a new window
-    const liveResultsUrl = window.location.origin + '/live_results.html';
-    window.open(liveResultsUrl, 'live-results');
+  const handleOpenLiveResults = async () => {
     console.log('🏆 Opening Live Results Display...');
+    
+    // Check if running in Electron
+    if ((window as any).electronAPI?.openLiveResults) {
+      // Use Electron IPC to open in new window
+      try {
+        await (window as any).electronAPI.openLiveResults();
+      } catch (error) {
+        console.error('[EventDayHome] Failed to open live results window:', error);
+        message.error('Failed to open Live Results window');
+      }
+    } else {
+      // Fallback for web browser (dev mode)
+      const liveResultsUrl = window.location.origin + '/live_results.html';
+      window.open(liveResultsUrl, 'live-results');
+    }
   };
 
   return (

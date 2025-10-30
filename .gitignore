@@ -49,3 +49,12 @@ test-*.js
 *_results.html
 results.xml
 results_with_total.xml
+
+# Database files (may contain personal data)
+*.db
+*.sqlite
+*.sqlite3
+public/runner_database_seed.db
+
+# Event-specific data (may contain personal info)
+electron_log.txt

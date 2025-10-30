@@ -1,5 +1,7 @@
 # Live Results Setup Guide
 
+> 📚 **Quick Navigation**: See [DOCS_INDEX.md](DOCS_INDEX.md) for complete documentation index
+
 ## Overview
 
 The Live Results system now uses a **configurable XML export path** based on your event's working directory. This makes it easier to manage multiple events and ensures all event files are kept together.

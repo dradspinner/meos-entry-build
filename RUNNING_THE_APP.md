@@ -1,4 +1,6 @@
-# Running the DVOA MeOS Event Builder
+# Running the MeOS Entry Build Application
+
+> 📚 **Quick Navigation**: See [DOCS_INDEX.md](DOCS_INDEX.md) for complete documentation index
 
 ## Development Modes
 

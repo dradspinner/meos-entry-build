@@ -86,7 +86,6 @@ class LocalEntryService {
         submittedToMeosAt: entry.submittedToMeosAt ? new Date(entry.submittedToMeosAt) : undefined,
       }));
     } catch (error) {
-      console.error('Error loading local entries:', error);
       return [];
     }
   }
@@ -113,7 +112,6 @@ class LocalEntryService {
       }
       
     } catch (error) {
-      console.error('Error saving local entries:', error);
       // Try to recover from backup
       this.recoverFromBackup();
     }
@@ -149,10 +147,9 @@ class LocalEntryService {
         newEntry.isHiredCard || false
       );
     } catch (error) {
-      console.error('[LocalEntry] Failed to update runner DB:', error);
+      // Silently handle runner DB update failure
     }
     
-    console.log('Added local entry:', newEntry);
     return newEntry;
   }
 
@@ -173,12 +170,6 @@ class LocalEntryService {
     entries.push(importedEntry);
     this.saveEntries(entries);
     
-    console.log('Imported local entry with preserved status:', {
-      name: `${importedEntry.name.first} ${importedEntry.name.last}`,
-      status: importedEntry.status,
-      checkedInAt: importedEntry.checkedInAt,
-      submittedToMeosAt: importedEntry.submittedToMeosAt
-    });
     return importedEntry;
   }
 
@@ -222,7 +213,7 @@ class LocalEntryService {
         updated.isHiredCard || false
       );
     } catch (error) {
-      console.error('[LocalEntry] Failed to update runner DB:', error);
+      // Silently handle runner DB update failure
     }
     
     return entries[index];
@@ -262,7 +253,6 @@ class LocalEntryService {
                               entry.classId === classRegistration.classId;
     
     if (alreadyRegistered) {
-      console.warn(`Runner ${entry.name.first} ${entry.name.last} is already registered for class ${classRegistration.className}`);
       return entry;
     }
     
@@ -277,7 +267,6 @@ class LocalEntryService {
     };
     
     this.saveEntries(entries);
-    console.log(`Added class ${classRegistration.className} to ${entry.name.first} ${entry.name.last}`);
     return entries[index];
   }
 

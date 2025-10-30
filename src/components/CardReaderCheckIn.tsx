@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Modal,
   Alert,
@@ -6,16 +6,11 @@ import {
   Typography,
   Button,
   Card,
-  Row,
-  Col,
   List,
   Tag,
   Input,
   message,
-  Divider,
-  Tooltip,
-  Badge,
-  Spin
+  Badge
 } from 'antd';
 import {
   UsbOutlined,
@@ -25,7 +20,6 @@ import {
   CheckCircleOutlined,
   WarningOutlined,
   SearchOutlined,
-  ReloadOutlined,
   UserAddOutlined
 } from '@ant-design/icons';
 import { sportIdentService, type SICard, type SICardReadEvent } from '../services/sportIdentService';
@@ -72,6 +66,115 @@ const CardReaderCheckIn: React.FC<CardReaderCheckInProps> = ({
     }
   }, [visible]);
 
+  const handleCheckInEntry = useCallback(async (entry: LocalEntry, cardNumber: string) => {
+    setCheckingIn(entry.id);
+    
+    try {
+      // Check in the entry with the scanned card number
+      const updatedEntry = localEntryService.checkInEntry(entry.id, cardNumber);
+      
+      if (updatedEntry) {
+        message.loading(`🔄 ${entry.name.first} ${entry.name.last} checked in - submitting to MeOS...`, 0);
+        
+        // Auto-submit to MeOS after local check-in
+        try {
+          const classId = await meosClassService.getClassId(updatedEntry.className, updatedEntry.classId);
+          const isHired = updatedEntry.isHiredCard || updatedEntry.issues?.needsRentalCard || false;
+          
+          const meosEntryParams = {
+            name: `${updatedEntry.name.first} ${updatedEntry.name.last}`,
+            club: updatedEntry.club,
+            classId: classId.id,
+            cardNumber: parseInt(updatedEntry.cardNumber) || 0,
+            cardFee: isHired ? RENTAL_CARD_FEE : undefined,
+            phone: updatedEntry.phone,
+            birthYear: updatedEntry.birthYear ? parseInt(updatedEntry.birthYear) : undefined,
+            sex: updatedEntry.sex as 'M' | 'F' | undefined,
+            nationality: updatedEntry.nationality,
+          };
+
+          const meosResult = await meosApi.createEntry(meosEntryParams);
+          
+          if (meosResult.success) {
+            localEntryService.markSubmittedToMeos(updatedEntry.id);
+          }
+          
+          message.destroy();
+          message.success(`${entry.name.first} ${entry.name.last} checked in and submitted to MeOS!`);
+        } catch {
+          message.destroy();
+          message.warning(`${entry.name.first} ${entry.name.last} checked in locally, but MeOS submission failed. You can retry later from the dashboard.`);
+        }
+        
+        // Update local entries list
+        setEntries(localEntryService.getAllEntries());
+        
+        // Notify parent
+        if (onEntryCheckedIn) {
+          onEntryCheckedIn(updatedEntry, cardNumber);
+        }
+        
+        // Remove this card read from the list since it's been processed
+        setCardReads(prev => prev.filter(read => 
+          !(read.card.cardNumber.toString() === cardNumber && 
+            read.matchedEntries.some(e => e.id === entry.id))
+        ));
+      } else {
+        message.error('Failed to check in entry');
+      }
+    } catch {
+      message.error('Check-in failed');
+    } finally {
+      setCheckingIn(null);
+    }
+  }, [onEntryCheckedIn]);
+
+  // Memoize handleCardRead to prevent recreating on every render
+  const handleCardRead = useCallback(async (card: SICard) => {
+    // Check if this card is a hired card in MeOS
+    let isHiredCard = await meosHiredCardService.isCardInMeos(card.cardNumber.toString());
+    
+    // TEMPORARY OVERRIDE: Force card 8508148 to be treated as personal card for testing
+    if (card.cardNumber.toString() === '8508148') {
+      isHiredCard = false;
+    }
+
+    // Find entries that match this card number
+    const matchedEntries = entries.filter(entry => 
+      entry.cardNumber === card.cardNumber.toString() && entry.status === 'pending'
+    );
+
+    // Find entries that need cards (potential matches for rental cards)
+    const suggestedEntries = entries.filter(entry => 
+      entry.issues.needsRentalCard && entry.status === 'pending'
+    ).slice(0, 5); // Limit to top 5 suggestions
+
+    const result: CardReadResult = {
+      card,
+      matchedEntries,
+      suggestedEntries,
+      timestamp: new Date(),
+      isHiredCard
+    };
+
+    // Add to beginning of list (most recent first)
+    setCardReads(prev => [result, ...prev.slice(0, 9)]); // Keep last 10 reads
+    
+    // Auto-check-in if we have an exact match
+    if (matchedEntries.length === 1) {
+      handleCheckInEntry(matchedEntries[0], card.cardNumber.toString());
+    } else if (matchedEntries.length > 1) {
+      message.warning(`Multiple entries found for card ${card.cardNumber}. Please select one.`);
+    } else if (isHiredCard) {
+      message.success(`Hired card ${card.cardNumber} detected - ready for assignment!`);
+    } else {
+      // This is a personal card with no matching entry - open same-day registration
+      setRegistrationCardNumber(card.cardNumber.toString());
+      setSameDayRegistrationVisible(true);
+      message.info(`Personal card ${card.cardNumber} detected. Opening registration form...`);
+    }
+  }, [entries]);
+
   // Set up card reader event listener
   useEffect(() => {
     if (!visible) return;
@@ -95,184 +198,18 @@ const CardReaderCheckIn: React.FC<CardReaderCheckInProps> = ({
       sportIdentService.removeCallback(handleCardReadEvent);
       clearInterval(statusInterval);
     };
-  }, [visible, entries]);
+  }, [visible, handleCardRead]);
 
-  const handleCardRead = async (card: SICard) => {
-    console.log('[CardReaderCheckIn] Card read:', card);
-    console.log('[CardReaderCheckIn] Card number as string:', card.cardNumber.toString());
-
-    // Check if this card is a hired card in MeOS
-    let isHiredCard = await meosHiredCardService.isCardInMeos(card.cardNumber.toString());
-    console.log(`[CardReaderCheckIn] Card ${card.cardNumber} is hired card (from MeOS):`, isHiredCard);
-    
-    // TEMPORARY OVERRIDE: Force card 8508148 to be treated as personal card for testing
-    if (card.cardNumber.toString() === '8508148') {
-      console.log(`[CardReaderCheckIn] TEMPORARY OVERRIDE: Forcing card 8508148 to be treated as personal card`);
-      isHiredCard = false;
-    }
-    
-    // Debug: Get the current MeOS hired cards list
-    const meosHiredCards = await meosHiredCardService.getMeosHiredCards();
-    console.log('[CardReaderCheckIn] Current MeOS hired cards:', meosHiredCards);
-
-    // Find entries that match this card number
-    const matchedEntries = entries.filter(entry => 
-      entry.cardNumber === card.cardNumber.toString() && entry.status === 'pending'
-    );
-    console.log(`[CardReaderCheckIn] Found ${matchedEntries.length} matching entries for card ${card.cardNumber}:`, matchedEntries.map(e => `${e.name.first} ${e.name.last} (${e.status})`));
-
-    // Find entries that need cards (potential matches for rental cards)
-    const suggestedEntries = entries.filter(entry => 
-      entry.issues.needsRentalCard && entry.status === 'pending'
-    ).slice(0, 5); // Limit to top 5 suggestions
-    console.log(`[CardReaderCheckIn] Found ${suggestedEntries.length} entries needing rental cards:`, suggestedEntries.map(e => `${e.name.first} ${e.name.last}`));
-
-    const result: CardReadResult = {
-      card,
-      matchedEntries,
-      suggestedEntries,
-      timestamp: new Date(),
-      isHiredCard
-    };
-
-    // Add to beginning of list (most recent first)
-    setCardReads(prev => [result, ...prev.slice(0, 9)]); // Keep last 10 reads
-
-    // Decision flow for card handling
-    console.log(`[CardReaderCheckIn] Decision flow for card ${card.cardNumber}:`);
-    console.log(`[CardReaderCheckIn] - matchedEntries.length: ${matchedEntries.length}`);
-    console.log(`[CardReaderCheckIn] - suggestedEntries.length: ${suggestedEntries.length}`);
-    console.log(`[CardReaderCheckIn] - isHiredCard: ${isHiredCard}`);
-    
-    // Auto-check-in if we have an exact match
-    if (matchedEntries.length === 1) {
-      console.log(`[CardReaderCheckIn] DECISION: Auto-checking in single matched entry`);
-      handleCheckInEntry(matchedEntries[0], card.cardNumber.toString());
-    } else if (matchedEntries.length > 1) {
-      console.log(`[CardReaderCheckIn] DECISION: Multiple entries found, showing warning`);
-      message.warning(`Multiple entries found for card ${card.cardNumber}. Please select one.`);
-    } else if (isHiredCard) {
-      console.log(`[CardReaderCheckIn] DECISION: Hired card detected, showing rental assignment`);
-      message.success(`✅ Hired card ${card.cardNumber} detected - ready for assignment!`);
-    } else {
-      console.log(`[CardReaderCheckIn] DECISION: Personal card with no matching entry - opening same-day registration`);
-      // This is a personal card with no matching entry - open same-day registration
-      setRegistrationCardNumber(card.cardNumber.toString());
-      setSameDayRegistrationVisible(true);
-      message.info(`Personal card ${card.cardNumber} detected. Opening registration form...`);
-    }
-  };
-
-  const handleCheckInEntry = async (entry: LocalEntry, cardNumber: string) => {
-    setCheckingIn(entry.id);
-    
-    try {
-      // Check in the entry with the scanned card number
-      const updatedEntry = localEntryService.checkInEntry(entry.id, cardNumber);
-      
-      if (updatedEntry) {
-        message.loading(`🔄 ${entry.name.first} ${entry.name.last} checked in - submitting to MeOS...`, 0);
-        
-        // Auto-submit to MeOS after local check-in
-        try {
-          await submitToMeOS(updatedEntry);
-          message.destroy();
-          message.success(`✅ ${entry.name.first} ${entry.name.last} checked in and submitted to MeOS!`);
-        } catch (meosError) {
-          message.destroy();
-          console.warn('MeOS submission failed:', meosError);
-          message.warning(`⚠️ ${entry.name.first} ${entry.name.last} checked in locally, but MeOS submission failed. You can retry later from the dashboard.`);
-        }
-        
-        // Update local entries list
-        setEntries(localEntryService.getAllEntries());
-        
-        // Notify parent
-        if (onEntryCheckedIn) {
-          onEntryCheckedIn(updatedEntry, cardNumber);
-        }
-        
-        // Remove this card read from the list since it's been processed
-        setCardReads(prev => prev.filter(read => 
-          !(read.card.cardNumber.toString() === cardNumber && 
-            read.matchedEntries.some(e => e.id === entry.id))
-        ));
-      } else {
-        message.error('Failed to check in entry');
-      }
-    } catch (error) {
-      console.error('Check-in error:', error);
-      message.error('Check-in failed');
-    } finally {
-      setCheckingIn(null);
-    }
-  };
-
-  // Helper function to submit entry to MeOS
-  const submitToMeOS = async (entry: LocalEntry): Promise<void> => {
-    console.log(`[CardReaderCheckIn] Submitting ${entry.name.first} ${entry.name.last} to MeOS...`);
-    
-    // Convert local entry to MeOS entry format with proper class mapping
-    const classId = await getMeosClassId(entry.className, entry.classId);
-    
-    // CRITICAL: Check if this is a hired/rental card
-    const isHired = entry.isHiredCard || entry.issues?.needsRentalCard || false;
-    
-    console.log(`[CardReaderCheckIn] Converting entry: className="${entry.className}", classId="${entry.classId}" -> MeOS classId=${classId}`);
-    console.log(`[CardReaderCheckIn] Hired card check: isHiredCard=${entry.isHiredCard}, needsRentalCard=${entry.issues?.needsRentalCard}, isHired=${isHired}`);
-    console.log(`[CardReaderCheckIn] Card number: ${entry.cardNumber}`);
-    
-    const meosEntryParams = {
-      name: `${entry.name.first} ${entry.name.last}`,
-      club: entry.club,
-      classId: classId,
-      cardNumber: parseInt(entry.cardNumber) || 0,
-      cardFee: isHired ? RENTAL_CARD_FEE : undefined, // CRITICAL: Mark as hired card in MeOS
-      phone: entry.phone,
-      birthYear: entry.birthYear ? parseInt(entry.birthYear) : undefined,
-      sex: entry.sex as 'M' | 'F' | undefined,
-      nationality: entry.nationality,
-    };
-    
-    console.log(`[CardReaderCheckIn] 📤 Submitting to MeOS:`, JSON.stringify(meosEntryParams, null, 2));
-    if (isHired) {
-      console.log(`[CardReaderCheckIn] 💳 RENTAL CARD DETECTED - will be marked in MeOS with cardFee=$${RENTAL_CARD_FEE}`);
-    } else {
-      console.log(`[CardReaderCheckIn] 👤 Personal card - no cardFee will be sent`);
-    }
-
-    // Submit to MeOS
-    const meosResult = await meosApi.createEntry(meosEntryParams);
-    
-    if (meosResult.success) {
-      // Mark as submitted to MeOS
-      localEntryService.markSubmittedToMeos(entry.id);
-      console.log(`[CardReaderCheckIn] Successfully submitted ${entry.name.first} ${entry.name.last} to MeOS`);
-    } else {
-      throw new Error(meosResult.error || 'Unknown MeOS error');
-    }
-  };
-
-  // Helper function to convert class name/ID to MeOS class ID using service
-  const getMeosClassId = async (className: string, classId: string): Promise<number> => {
-    const result = await meosClassService.getClassId(className, classId);
-    console.log(`[CardReaderCheckIn] ClassMapping: className="${className}", classId="${classId}" -> MeOS class ${result.id} (${result.method})`);
-    return result.id;
-  };
-
-  const handleConnectReader = async () => {
+  const handleConnectReader = useCallback(async () => {
     try {
       await sportIdentService.connect();
       message.success('Connected to card reader');
-    } catch (error) {
-      console.error('Connection failed:', error);
+    } catch {
       message.error('Failed to connect to card reader');
     }
-  };
+  }, []);
 
-  const handleSameDayRegistrationComplete = (entry: LocalEntry, cardNumber: string) => {
-    console.log(`[CardReaderCheckIn] Same-day registration complete for ${entry.name.first} ${entry.name.last}`);
-    
+  const handleSameDayRegistrationComplete = useCallback((entry: LocalEntry, cardNumber: string) => {
     // Refresh entries list to include the new entry
     setEntries(localEntryService.getAllEntries());
     
@@ -283,14 +220,14 @@ const CardReaderCheckIn: React.FC<CardReaderCheckInProps> = ({
     if (onEntryCheckedIn) {
       onEntryCheckedIn(entry, cardNumber);
     }
-  };
+  }, [onEntryCheckedIn]);
 
-  const handleCloseSameDayRegistration = () => {
+  const handleCloseSameDayRegistration = useCallback(() => {
     setSameDayRegistrationVisible(false);
     setRegistrationCardNumber('');
-  };
+  }, []);
 
-  const getFilteredEntries = () => {
+  const filteredEntries = useMemo(() => {
     if (!searchTerm) return [];
     
     const search = searchTerm.toLowerCase();
@@ -301,7 +238,7 @@ const CardReaderCheckIn: React.FC<CardReaderCheckInProps> = ({
         entry.cardNumber.includes(search)
       )
     ).slice(0, 10); // Limit results
-  };
+  }, [searchTerm, entries]);
 
   const renderCardReadResult = (result: CardReadResult) => {
     const { card, matchedEntries, suggestedEntries, isHiredCard } = result;
@@ -525,7 +462,7 @@ const CardReaderCheckIn: React.FC<CardReaderCheckInProps> = ({
             <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
               <List
                 size="small"
-                dataSource={getFilteredEntries()}
+                dataSource={filteredEntries}
                 renderItem={(entry) => (
                   <List.Item
                     actions={[

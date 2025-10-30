@@ -12,8 +12,19 @@ export interface MeOSEventData {
   cardFee?: number;
   youthAge?: number;
   lateEntryFactor?: string;
+  maxTime?: number;
+  importStamp?: string;
+  currencyFactor?: number;
+  currencySymbol?: string;
+  currencySeparator?: string;
+  currencyPreSymbol?: number;
   features?: string;
+  longTimes?: number;
   payModes?: string;
+  transferFlags?: number;
+  mergeTag?: string;
+  extraFields?: string;
+  controlMap?: string;
 }
 
 export interface MeOSControl {
@@ -39,6 +50,7 @@ export interface MeOSClass {
   id: number;
   name: string;
   courseId: number;
+  fee?: number;
   allowQuickEntry?: boolean;
   classType?: string;
   startName?: string;
@@ -140,8 +152,19 @@ export class MeOSXMLParser {
       cardFee: getODataNumber('CardFee'),
       youthAge: getODataNumber('YouthAge'),
       lateEntryFactor: getODataText('LateEntryFactor'),
+      maxTime: getODataNumber('MaxTime'),
+      importStamp: getODataText('ImportStamp'),
+      currencyFactor: getODataNumber('CurrencyFactor'),
+      currencySymbol: getODataText('CurrencySymbol'),
+      currencySeparator: getODataText('CurrencySeparator'),
+      currencyPreSymbol: getODataNumber('CurrencyPreSymbol'),
       features: getODataText('Features'),
-      payModes: getODataText('PayModes')
+      longTimes: getODataNumber('LongTimes'),
+      payModes: getODataText('PayModes'),
+      transferFlags: getODataNumber('TransferFlags'),
+      mergeTag: getODataText('MergeTag'),
+      extraFields: getODataText('ExtraFields'),
+      controlMap: getODataText('ControlMap')
     };
   }
 
@@ -235,6 +258,8 @@ export class MeOSXMLParser {
       const courseId = parseInt(classEl.querySelector('Course')?.textContent || '0', 10);
       const oData = classEl.querySelector('oData');
       
+      const feeText = oData?.querySelector('Fee')?.textContent;
+      const fee = feeText ? parseInt(feeText, 10) : undefined;
       const allowQuickEntry = oData?.querySelector('AllowQuickEntry')?.textContent === '1';
       const classType = oData?.querySelector('ClassType')?.textContent || undefined;
       const startName = oData?.querySelector('StartName')?.textContent || undefined;
@@ -245,6 +270,7 @@ export class MeOSXMLParser {
         id,
         name,
         courseId,
+        fee,
         allowQuickEntry,
         classType,
         startName,
@@ -346,11 +372,22 @@ export class MeOSXMLParser {
     if (data.event.cardFee !== undefined) xml += `<CardFee>${data.event.cardFee}</CardFee>\n`;
     if (data.event.youthAge !== undefined) xml += `<YouthAge>${data.event.youthAge}</YouthAge>\n`;
     if (data.event.lateEntryFactor) xml += `<LateEntryFactor>${this.escapeXML(data.event.lateEntryFactor)}</LateEntryFactor>\n`;
+    if (data.event.maxTime !== undefined) xml += `<MaxTime>${data.event.maxTime}</MaxTime>\n`;
+    if (data.event.importStamp) xml += `<ImportStamp>${this.escapeXML(data.event.importStamp)}</ImportStamp>\n`;
     xml += `<Organizer>${this.escapeXML(data.event.organizer)}</Organizer>\n`;
     xml += `<CareOf>${this.escapeXML(data.event.courseSetter)}</CareOf>\n`;
     if (data.event.homepage) xml += `<Homepage>${this.escapeXML(data.event.homepage)}</Homepage>\n`;
+    if (data.event.currencyFactor !== undefined) xml += `<CurrencyFactor>${data.event.currencyFactor}</CurrencyFactor>\n`;
+    if (data.event.currencySymbol) xml += `<CurrencySymbol>${this.escapeXML(data.event.currencySymbol)}</CurrencySymbol>\n`;
+    if (data.event.currencySeparator) xml += `<CurrencySeparator>${this.escapeXML(data.event.currencySeparator)}</CurrencySeparator>\n`;
+    if (data.event.currencyPreSymbol !== undefined) xml += `<CurrencyPreSymbol>${data.event.currencyPreSymbol}</CurrencyPreSymbol>\n`;
     if (data.event.features) xml += `<Features>${this.escapeXML(data.event.features)}</Features>\n`;
+    if (data.event.longTimes !== undefined) xml += `<LongTimes>${data.event.longTimes}</LongTimes>\n`;
     if (data.event.payModes) xml += `<PayModes>${this.escapeXML(data.event.payModes)}</PayModes>\n`;
+    if (data.event.transferFlags !== undefined) xml += `<TransferFlags>${data.event.transferFlags}</TransferFlags>\n`;
+    if (data.event.mergeTag) xml += `<MergeTag>${this.escapeXML(data.event.mergeTag)}</MergeTag>\n`;
+    if (data.event.extraFields) xml += `<ExtraFields>${this.escapeXML(data.event.extraFields)}</ExtraFields>\n`;
+    if (data.event.controlMap) xml += `<ControlMap>${this.escapeXML(data.event.controlMap)}</ControlMap>\n`;
     xml += '</oData>\n';
     
     // Controls
@@ -404,9 +441,10 @@ export class MeOSXMLParser {
         xml += `<Name>${this.escapeXML(cls.name)}</Name>\n`;
         if (cls.courseId) xml += `<Course>${cls.courseId}</Course>\n`;
         xml += '<oData>\n';
+        if (cls.fee !== undefined) xml += `<Fee>${cls.fee}</Fee>\n`;
         if (cls.allowQuickEntry) xml += '<AllowQuickEntry>1</AllowQuickEntry>\n';
         if (cls.classType) xml += `<ClassType>${this.escapeXML(cls.classType)}</ClassType>\n`;
-        xml += `<StartName>${cls.startName || 'Start'}</StartName>\n`;
+        if (cls.startName) xml += `<StartName>${cls.startName}</StartName>\n`;
         if (cls.sortIndex !== undefined) xml += `<SortIndex>${cls.sortIndex}</SortIndex>\n`;
         xml += '</oData>\n';
         xml += '</Class>\n';
@@ -434,6 +472,14 @@ export class MeOSXMLParser {
       });
       xml += '</ClubList>\n';
     }
+    
+    // RunnerList (was CompetitorList)
+    xml += '<RunnerList>\n';
+    xml += '</RunnerList>\n';
+    
+    // TeamList
+    xml += '<TeamList>\n';
+    xml += '</TeamList>\n';
     
     xml += '</meosdata>';
     return xml;

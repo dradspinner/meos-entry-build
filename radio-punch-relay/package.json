@@ -1,0 +1,30 @@
+{
+  "name": "meos-radio-punch-relay",
+  "version": "1.0.0",
+  "description": "Local relay service for SportIdent radio punches to MeOS via MIP protocol",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "node src/test-punch.js"
+  },
+  "keywords": [
+    "orienteering",
+    "SportIdent",
+    "MeOS",
+    "radio",
+    "timing"
+  ],
+  "author": "DVOA",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "serialport": "^12.0.0",
+    "xml2js": "^0.6.2",
+    "cors": "^2.8.5",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

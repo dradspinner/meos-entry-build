@@ -21,6 +21,7 @@ interface RunnerResult {
   startTime?: Date;
   finishTime?: Date;
   totalTime?: number; // seconds
+  runningTime?: number; // seconds - for in-forest runners
   courseLength?: number; // meters
   pace?: number; // minutes per km
   timeBehind?: number; // seconds behind leader
@@ -96,6 +97,19 @@ const LiveResults: React.FC = () => {
             const status = parseInt(person['@attributes']?.stat || '0');
             const statusCode = status === 1 ? 'OK' : (status === 0 ? 'unknown' : 'DNF');
             
+            // Calculate running time for in-forest runners
+            let runningTime: number | undefined;
+            if (stValue > 0 && status !== 1) {
+              // Runner has started but not finished
+              // stValue is in 1/10 seconds since midnight, convert to today's timestamp
+              const secondsSinceMidnight = stValue / 10;
+              const today = new Date();
+              today.setHours(0, 0, 0, 0); // Set to midnight
+              const startDate = new Date(today.getTime() + secondsSinceMidnight * 1000);
+              const now = new Date();
+              runningTime = Math.floor((now.getTime() - startDate.getTime()) / 1000);
+            }
+            
             const runner: RunnerResult = {
               id: competitorId || `${firstName}_${lastName}`,
               name: {
@@ -107,8 +121,14 @@ const LiveResults: React.FC = () => {
               classId: classId,
               position: place,
               status: status === 1 ? 'finished' : (stValue > 0 ? 'in_forest' : 'checked_in'),
-              startTime: stValue > 0 ? new Date(stValue * 100) : undefined,
+              startTime: stValue > 0 ? (() => {
+                const secondsSinceMidnight = stValue / 10;
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                return new Date(today.getTime() + secondsSinceMidnight * 1000);
+              })() : undefined,
               totalTime: totalTime > 0 ? totalTime : undefined,
+              runningTime: runningTime,
               courseLength: classInfo?.course?.length || undefined
             };
             
@@ -165,9 +185,9 @@ const LiveResults: React.FC = () => {
           const className = runners[0]?.className || 'Unknown';
           const classId = runners[0]?.classId || 'unknown';
 
-          // Sort runners by status and time
+          // Sort runners: finished by position, then in-forest mixed with finished by time
           runners.sort((a, b) => {
-            // Finished runners first, sorted by position
+            // Both finished - sort by position
             if (a.status === 'finished' && b.status === 'finished') {
               if (a.position && b.position) {
                 return a.position - b.position;
@@ -178,20 +198,29 @@ const LiveResults: React.FC = () => {
               return 0;
             }
             
-            // Finished runners before others
-            if (a.status === 'finished') return -1;
-            if (b.status === 'finished') return 1;
-            
-            // In forest runners by start time (earliest first)
-            if (a.status === 'in_forest' && b.status === 'in_forest') {
-              if (a.startTime && b.startTime) {
-                return a.startTime.getTime() - b.startTime.getTime();
-              }
+            // Mix in-forest runners with finished based on running time vs finish times
+            if (a.status === 'finished' && b.status === 'in_forest') {
+              const aTime = a.totalTime || 0;
+              const bTime = b.runningTime || 0;
+              return aTime - bTime;
             }
             
-            // In forest before checked in
-            if (a.status === 'in_forest' && b.status === 'checked_in') return -1;
-            if (a.status === 'checked_in' && b.status === 'in_forest') return 1;
+            if (a.status === 'in_forest' && b.status === 'finished') {
+              const aTime = a.runningTime || 0;
+              const bTime = b.totalTime || 0;
+              return aTime - bTime;
+            }
+            
+            // Both in forest - sort by running time
+            if (a.status === 'in_forest' && b.status === 'in_forest') {
+              const aTime = a.runningTime || 0;
+              const bTime = b.runningTime || 0;
+              return aTime - bTime;
+            }
+            
+            // Finished and in-forest before checked in
+            if ((a.status === 'finished' || a.status === 'in_forest') && b.status === 'checked_in') return -1;
+            if (a.status === 'checked_in' && (b.status === 'finished' || b.status === 'in_forest')) return 1;
             
             // Sort checked-in runners alphabetically by last name
             if (a.status === 'checked_in' && b.status === 'checked_in') {
@@ -544,14 +573,29 @@ const LiveResults: React.FC = () => {
               },
               {
                 title: 'Time',
-                dataIndex: 'totalTime',
                 key: 'time',
                 width: 80,
-                render: (time: number) => (
-                  <Text style={{ fontFamily: 'monospace', fontSize: '14px' }}>
-                    {formatTime(time)}
-                  </Text>
-                )
+                render: (record: RunnerResult) => {
+                  if (record.status === 'in_forest' && record.runningTime) {
+                    return (
+                      <Text 
+                        style={{ 
+                          fontFamily: 'monospace', 
+                          fontSize: '14px',
+                          color: '#1890ff',
+                          fontStyle: 'italic'
+                        }}
+                      >
+                        {formatTime(record.runningTime)}
+                      </Text>
+                    );
+                  }
+                  return (
+                    <Text style={{ fontFamily: 'monospace', fontSize: '14px' }}>
+                      {formatTime(record.totalTime)}
+                    </Text>
+                  );
+                }
               },
               {
                 title: 'Pace',

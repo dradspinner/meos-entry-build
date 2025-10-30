@@ -241,31 +241,34 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
     <Modal
       title={
         <Space>
-          <Text strong style={{ fontSize: '18px', color: '#000' }}>Edit Entry</Text>
+          <Text strong style={{ fontSize: '16px', color: '#000' }}>Edit Entry</Text>
         </Space>
       }
       open={open}
       onCancel={onClose}
       footer={null}
-      width={800}
+      width={700}
       destroyOnHidden
       forceRender
       key={entry?.id || 'new'}
-      styles={{ body: { fontSize: '15px' } }}
+      styles={{ 
+        body: { fontSize: '14px', maxHeight: '75vh', overflowY: 'auto', padding: '12px 20px' },
+        mask: { backgroundColor: 'rgba(0, 0, 0, 0.65)' }
+      }}
     >
       <>
         <Alert 
           type={readerStatus.connected ? 'success' : 'warning'} 
           showIcon 
-          style={{ marginBottom: 16, fontSize: '15px', fontWeight: 500 }}
-          message={<span style={{ fontSize: '15px', fontWeight: 600 }}>{readerStatus.connected ? 'Card Reader Connected' : 'Card Reader Disconnected'}</span>}
+          style={{ marginBottom: 8, fontSize: '12px', fontWeight: 500, padding: '4px 10px' }}
+          message={<span style={{ fontSize: '12px', fontWeight: 600 }}>{readerStatus.connected ? 'Card Reader Connected' : 'Card Reader Disconnected'}</span>}
           action={!readerStatus.connected ? (
             <Button size="small" onClick={async ()=>{try{await sportIdentService.connect(); setReaderStatus(sportIdentService.getStatus());}catch{}}}>
               Connect
             </Button>
           ) : undefined}
         />
-        {open && <Form form={form} layout="vertical" key={`form-${entry?.id || 'new'}`} size="large">
+        {open && <Form form={form} layout="vertical" key={`form-${entry?.id || 'new'}`} size="small">
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item 
@@ -293,18 +296,18 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
               </Form.Item>
             </Col>
           </Row>
-          <Row gutter={16}>
-            <Col span={12}>
+          <Row gutter={12}>
+            <Col span={14}>
               <Form.Item label="Club" name="club" rules={[{ required: true }]}>
                 <Input />
               </Form.Item>
             </Col>
-            <Col span={6}>
-              <Form.Item label="Birth Year" name="birthYear">
+            <Col span={5}>
+              <Form.Item label="YB" name="birthYear">
                 <Input />
               </Form.Item>
             </Col>
-            <Col span={6}>
+            <Col span={5}>
               <Form.Item label="Sex" name="sex">
                 <Select allowClear>
                   <Option value="M">M</Option>
@@ -313,8 +316,8 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
               </Form.Item>
             </Col>
           </Row>
-          <Row gutter={16}>
-            <Col span={12}>
+          <Row gutter={12}>
+            <Col span={14}>
               <Form.Item 
                 label={
                   <span>
@@ -336,19 +339,19 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
                 </Select>
               </Form.Item>
             </Col>
-            <Col span={12}>
-              <Form.Item label="Card Number" name="cardNumber" rules={[{ required: true }]}>
+            <Col span={10}>
+              <Form.Item label="Card #" name="cardNumber" rules={[{ required: true }]}>
                 <Input addonAfter={<IdcardOutlined onClick={() => { if (lastCard) { form.setFieldsValue({ cardNumber: lastCard }); } else { applyLastCard(); } }} />} />
               </Form.Item>
             </Col>
           </Row>
           
           {/* Additional Classes Section */}
-          <Divider orientation="left" style={{ marginTop: 8, marginBottom: 8 }}>Additional Classes</Divider>
+          <Divider orientation="left" style={{ marginTop: 2, marginBottom: 4, fontSize: '12px' }}>Additional Classes</Divider>
           <Row gutter={16}>
             <Col span={24}>
               {(entry?.additionalClasses && entry.additionalClasses.length > 0) && (
-                <div style={{ marginBottom: 12 }}>
+                <div style={{ marginBottom: 8 }}>
                   <Text type="secondary">Current additional classes:</Text>
                   <div style={{ marginTop: 8 }}>
                     {entry.additionalClasses.map((classReg, idx) => (
@@ -384,7 +387,7 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
               )}
               
               {additionalClasses.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
+                <div style={{ marginBottom: 8 }}>
                   <Text type="secondary">New classes to add:</Text>
                   <div style={{ marginTop: 8 }}>
                     {additionalClasses.map((classId, idx) => {
@@ -461,22 +464,22 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
               </Form.Item>
             </Col>
           </Row>
-          <Row gutter={16}>
-            <Col span={12}>
+          <Row gutter={12}>
+            <Col span={8}>
               <Form.Item label="Phone" name="phone">
                 <Input />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col span={16}>
               <Form.Item label="Email" name="email">
                 <Input type="email" />
               </Form.Item>
             </Col>
           </Row>
-          <Row gutter={16}>
-            <Col span={12}>
+          <Row gutter={12}>
+            <Col span={8}>
               <Form.Item 
-                label="Birth Year" 
+                label="YB" 
                 name="birthYear"
                 rules={[{
                   validator: async (_, value) => {
@@ -494,7 +497,7 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
                 <Input />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col span={16}>
               <Form.Item label="Nationality (for groups)" name="nationality">
                 <Input placeholder="Leave empty or 0 for individual, 2+ for group" />
               </Form.Item>
@@ -502,13 +505,13 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
           </Row>
         </Form>}
           
-        <Row justify="end" style={{ marginTop: 24 }}>
+        <Row justify="end" style={{ marginTop: 12 }}>
           <Space size="middle">
             <Button 
               onClick={handleSave} 
               loading={saving} 
-              size="large"
-              style={{ fontWeight: 600, minWidth: 100 }}
+              size="middle"
+              style={{ fontWeight: 600, minWidth: 90 }}
             >
               Save
             </Button>
@@ -516,8 +519,8 @@ const EntryEditModal: React.FC<EntryEditModalProps> = ({ open, entry, onClose, o
               type="primary" 
               icon={<LoginOutlined />} 
               onClick={handleCheckIn}
-              size="large"
-              style={{ fontWeight: 600, minWidth: 140 }}
+              size="middle"
+              style={{ fontWeight: 600, minWidth: 120 }}
             >
               Check In
             </Button>

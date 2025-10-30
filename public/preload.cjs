@@ -16,6 +16,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Live results export
   writeLiveResults: (jsonContent) => ipcRenderer.invoke('write-live-results', jsonContent),
+  openLiveResults: () => ipcRenderer.invoke('open-live-results'),
+  
+  // MIP Server control
+  mipServerStart: (options) => ipcRenderer.invoke('mip-server-start', options),
+  mipServerStop: () => ipcRenderer.invoke('mip-server-stop'),
+  mipServerStatus: () => ipcRenderer.invoke('mip-server-status'),
+  checkMeOSRemoteInput: () => ipcRenderer.invoke('check-meos-remote-input'),
   
   // Menu event listeners
   onMenuEvent: (eventName, callback) => {

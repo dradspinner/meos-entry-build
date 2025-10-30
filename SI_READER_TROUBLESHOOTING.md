@@ -1,5 +1,7 @@
 # SportIdent Card Reader Troubleshooting Guide
 
+> 📚 **Quick Navigation**: See [DOCS_INDEX.md](DOCS_INDEX.md) for complete documentation index
+
 ## Current Issue: Cannot Connect Card Reader on Event Day Dashboard
 
 ### Quick Checklist

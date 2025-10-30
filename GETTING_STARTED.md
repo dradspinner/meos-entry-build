@@ -1,5 +1,7 @@
 # Getting Started - MeOS Entry Build Application
 
+> 📚 **Quick Navigation**: See [DOCS_INDEX.md](DOCS_INDEX.md) for complete documentation index
+
 ## What You Have Right Now
 
 You have a working web application that will help manage event day registration for MeOS orienteering events. The application is currently running on your computer and ready to be customized.

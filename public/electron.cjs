@@ -2,6 +2,19 @@ const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron')
 const path = require('path');
 const isDev = require('electron-is-dev');
 const { spawn } = require('child_process');
+const os = require('os');
+const MIPServer = require('./mip-server.cjs');
+const SportIdentReader = require('./sportident-reader.cjs');
+
+// Fix cache permission issues on Windows with OneDrive
+// Set app paths to local temp directory instead of OneDrive-synced locations
+const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+const appCachePath = path.join(localAppData, 'meos-entry-build-cache');
+const appDataPath = path.join(localAppData, 'meos-entry-build');
+
+app.setPath('userData', appDataPath);
+app.setPath('cache', appCachePath);
+app.setPath('sessionData', path.join(appDataPath, 'Session Storage'));
 
 // Enable Web Serial API and experimental features before app ready
 app.commandLine.appendSwitch('enable-experimental-web-platform-features');
@@ -14,6 +27,8 @@ app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor');
 let mainWindow;
 let databaseManagerWindow = null;
 let pythonServerProcess = null;
+let mipServer = null;
+let siReader = null;
 
 // Serial port selection handler on app (Electron 19+)
 app.on('select-serial-port', (event, portList, webContents, callback) => {
@@ -382,6 +397,17 @@ app.on('window-all-closed', () => {
   // Stop Python server when app is quitting
   stopPythonServer();
   
+  // Stop SI reader and MIP server when app is quitting
+  if (siReader) {
+    siReader.disconnect().catch(err => console.error('[Electron] Error disconnecting SI reader:', err));
+    siReader = null;
+  }
+  
+  if (mipServer) {
+    mipServer.stop().catch(err => console.error('[Electron] Error stopping MIP server:', err));
+    mipServer = null;
+  }
+  
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -390,7 +416,57 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   // Ensure Python server is stopped before app quits
   stopPythonServer();
+  
+  // Ensure SI reader and MIP server are stopped before app quits
+  if (siReader) {
+    siReader.disconnect().catch(err => console.error('[Electron] Error disconnecting SI reader:', err));
+    siReader = null;
+  }
+  
+  if (mipServer) {
+    mipServer.stop().catch(err => console.error('[Electron] Error stopping MIP server:', err));
+    mipServer = null;
+  }
 });
+
+// Create live results window
+function createLiveResultsWindow() {
+  console.log('[Electron] Creating Live Results window...');
+  
+  const liveResultsWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      webSecurity: false,
+      preload: path.join(__dirname, 'preload.cjs')
+    },
+    icon: path.join(__dirname, 'icon.png'),
+    title: 'Live Results Display',
+    show: false
+  });
+
+  // Load the live results HTML
+  const liveResultsPath = isDev 
+    ? `http://localhost:${process.env.VITE_PORT || 5174}/live_results.html` 
+    : `file://${path.join(__dirname, 'live_results.html')}`;
+  
+  console.log('[Electron] Loading live results from:', liveResultsPath);
+  liveResultsWindow.loadURL(liveResultsPath);
+
+  // Show window when ready
+  liveResultsWindow.once('ready-to-show', () => {
+    liveResultsWindow.show();
+    console.log('[Electron] Live Results window opened');
+  });
+
+  // Handle errors
+  liveResultsWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('[Electron] Live Results failed to load:', errorDescription);
+  });
+}
 
 // Create database manager window
 function createDatabaseManagerWindow() {
@@ -717,6 +793,17 @@ ipcMain.handle('check-for-updates', async (event) => {
   return { hasUpdates: false };
 });
 
+// Open live results window
+ipcMain.handle('open-live-results', async (event) => {
+  try {
+    createLiveResultsWindow();
+    return { success: true };
+  } catch (error) {
+    console.error('[Electron] Failed to open live results:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Clipboard operations
 ipcMain.handle('write-clipboard', async (event, text) => {
   try {
@@ -746,6 +833,187 @@ ipcMain.handle('open-external', async (event, path) => {
     return { success: true };
   } catch (error) {
     console.error('[Electron] Failed to open path:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// MIP Server control
+ipcMain.handle('mip-server-start', async (event, options = {}) => {
+  try {
+    if (mipServer) {
+      console.log('[Electron] MIP server already running');
+      return { success: true, alreadyRunning: true };
+    }
+    
+    console.log('[Electron] Starting MIP server...');
+    mipServer = new MIPServer({
+      port: options.port || 8099,
+      competitionId: options.competitionId || 0
+    });
+    
+    await mipServer.start();
+    console.log('[Electron] MIP server started successfully');
+    
+    // Try to connect SportIdent reader
+    try {
+      console.log('[Electron] Connecting to SportIdent dongle...');
+      siReader = new SportIdentReader({
+        autoDetect: true,
+        debug: false
+      });
+      
+      // Set up punch handler to forward to MIP server
+      siReader.on('punch', (punch) => {
+        console.log(`[Electron] Punch received: Card=${punch.cardNumber} Control=${punch.controlCode}`);
+        mipServer.addPunch(punch);
+        
+        // Notify renderer of punch
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('si-punch', punch);
+        }
+      });
+      
+      siReader.on('error', (error) => {
+        console.error('[Electron] SI Reader error:', error.message);
+      });
+      
+      siReader.on('disconnected', () => {
+        console.log('[Electron] SI Dongle disconnected');
+      });
+      
+      await siReader.connect();
+      console.log('[Electron] SportIdent dongle connected successfully');
+      
+    } catch (siError) {
+      console.warn('[Electron] Could not connect SportIdent dongle:', siError.message);
+      console.warn('[Electron] MIP server is running but will not receive punches until dongle is connected');
+      // Don't fail - MIP server can run without SI reader for testing
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('[Electron] Failed to start MIP server:', error);
+    mipServer = null;
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('mip-server-stop', async (event) => {
+  try {
+    if (!mipServer) {
+      console.log('[Electron] MIP server not running');
+      return { success: true, notRunning: true };
+    }
+    
+    console.log('[Electron] Stopping MIP server...');
+    
+    // Disconnect SI reader first with timeout protection
+    if (siReader) {
+      try {
+        // Add timeout to prevent hanging
+        const disconnectPromise = siReader.disconnect();
+        const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 2000));
+        await Promise.race([disconnectPromise, timeoutPromise]);
+        console.log('[Electron] SportIdent dongle disconnected');
+      } catch (err) {
+        console.error('[Electron] Error disconnecting SI reader:', err);
+      }
+      siReader = null;
+    }
+    
+    // Stop MIP server with timeout protection
+    try {
+      const stopPromise = mipServer.stop();
+      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 2000));
+      await Promise.race([stopPromise, timeoutPromise]);
+    } catch (err) {
+      console.error('[Electron] Error stopping MIP server:', err);
+    }
+    
+    mipServer = null;
+    console.log('[Electron] MIP server stopped');
+    
+    return { success: true };
+  } catch (error) {
+    console.error('[Electron] Failed to stop MIP server:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('mip-server-status', async (event) => {
+  try {
+    if (!mipServer) {
+      return { 
+        success: true, 
+        running: false,
+        siReaderConnected: false
+      };
+    }
+    
+    // Check if server is actually responding
+    const stats = mipServer.getStatistics();
+    
+    // Check SI reader status
+    let siReaderStats = null;
+    let siReaderConnected = false;
+    if (siReader) {
+      siReaderStats = siReader.getStatistics();
+      siReaderConnected = siReaderStats.connected;
+    }
+    
+    return { 
+      success: true, 
+      running: true,
+      port: mipServer.port,
+      competitionId: mipServer.competitionId,
+      statistics: stats,
+      siReaderConnected: siReaderConnected,
+      siReaderStatistics: siReaderStats
+    };
+  } catch (error) {
+    console.error('[Electron] Failed to get MIP server status:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('check-meos-remote-input', async (event) => {
+  try {
+    // Check if MeOS is polling the MIP server
+    // We can detect this by checking if we've had recent requests
+    if (!mipServer) {
+      return { 
+        success: true, 
+        running: false,
+        message: 'MIP server not started'
+      };
+    }
+    
+    const stats = mipServer.getStatistics();
+    const lastRequest = stats.lastRequest;
+    
+    if (!lastRequest) {
+      return {
+        success: true,
+        running: false,
+        message: 'No requests received yet from MeOS'
+      };
+    }
+    
+    // Consider MeOS connected if we've had a request in the last 60 seconds
+    const secondsSinceLastRequest = Math.floor((Date.now() - lastRequest.getTime()) / 1000);
+    const isConnected = secondsSinceLastRequest < 60;
+    
+    return {
+      success: true,
+      running: isConnected,
+      message: isConnected 
+        ? `MeOS connected (last request ${secondsSinceLastRequest}s ago)`
+        : `No recent requests (last request ${secondsSinceLastRequest}s ago)`,
+      lastRequestTime: lastRequest,
+      secondsSinceLastRequest
+    };
+  } catch (error) {
+    console.error('[Electron] Failed to check MeOS remote input:', error);
     return { success: false, error: error.message };
   }
 });

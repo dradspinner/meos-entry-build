@@ -1,176 +1,147 @@
 # MeOS Entry Build - DVOA Event Management System
 
-## Overview
+**A comprehensive Electron-based desktop application for managing orienteering event operations with MeOS integration.**
 
-A comprehensive Electron-based desktop application for managing orienteering event operations with MeOS integration. This system provides pre-event setup, same-day registration and check-in, SI card reader integration, runner database management, and live results display.
+## Quick Start
 
-## Key Features
+```powershell
+npm install              # Install dependencies
+npm run electron:dev     # Run application (recommended)
+npm run dev              # Run in browser (limited features)
+```
+
+📖 **[Full Setup Guide](GETTING_STARTED.md)** | 🚀 **[Running the App](RUNNING_THE_APP.md)** | 📚 **[Documentation Index](DOCS_INDEX.md)** | ⚙️ **[Developer Setup](DEV_SETUP_COMPLETE.md)**
+
+## Core Features
 
 ### 🏃 Event Day Operations
 - **Same-Day Registration**: Walk-in runner registration with MeOS integration
 - **Check-In System**: Fast check-in with SI card scanning
 - **Entry Management**: Edit and manage runner entries before start
 - **Rental Card Tracking**: Mark and track rental SI cards with collection reminders
-- **Real-time Verification**: Validate entries against MeOS database
+- **Multi-Class Support**: Register runners for multiple classes
 
 ### 📊 Live Results Display  
-- **Multi-Screen Support**: Display results across 1-4 monitors
+- **Multi-Screen Support**: Display results across 1-4 monitors with auto-optimization
 - **Medal Highlights**: Gold/silver/bronze backgrounds for top 3 finishers
 - **Recent Finisher Alerts**: Bold text for new finishers (within 4 minutes)
 - **Checked-In Tracking**: Show runners who checked in but haven't started
-- **User Controls**: Configurable refresh rate (10s-60s)
-- **Course Information**: Auto-display course lengths and difficulty
 - **Time Lost Analysis**: MeOS-based split analysis algorithm
+- **[Setup Guide](LIVE_RESULTS_SETUP.md)** | **[Documentation](LIVE_RESULTS_README.md)**
 
 ### 🗄️ Runner Database
 - **Cloud Sync**: Sync runner database across multiple devices
 - **Quick Search**: Fast lookup by name or club
-- **Import/Export**: CSV import for bulk updates
+- **Import/Export**: IOF XML 3.0 and CSV import for bulk updates
+- **SQL Converter**: Convert legacy SQL database exports to IOF XML
 - **Historical Data**: Track runner participation history
 
 ### 🎯 SI Card Reader Integration
 - **Auto-Detection**: Automatic SportIdent reader connection
 - **Card Scanning**: Instant card number capture on scan
 - **Auto-Assignment**: Match scanned cards to pending entries
-- **Serial Port Management**: Handles multiple reader types
+- **[Troubleshooting Guide](SI_READER_TROUBLESHOOTING.md)**
 
 ### 📋 Pre-Event Setup
 - **Event Builder**: Create and configure events from scratch
 - **Jotform Integration**: Import pre-registrations from Jotform
-- **OE File Import**: Import entries from IOE or CSV formats
+- **IOF/CSV Import**: Import entries from various formats
 - **Course Configuration**: Set up courses and class assignments
 - **Export to MeOS**: Generate MeOS-compatible entry files
 
 ### 🌐 Network Configuration
 - **MySQL Network Setup**: One-click configuration for two-computer setups
 - **Automatic Firewall Configuration**: Sets up Windows Firewall rules
-- **User Management**: Creates DVOA user with network access permissions
-- **IP Address Display**: Shows local IP for connecting other computers
-- **[Documentation](docs/MYSQL_NETWORK_SETUP.md)**: Complete setup guide
+- **[Setup Guide](docs/MYSQL_NETWORK_SETUP.md)** | **[Quick Reference](docs/MYSQL_QUICK_REFERENCE.md)**
 
-## Improved Features
+### 📡 Radio Punch Integration (Optional)
+- **Real-time Radio Punches**: Receive punches from wireless SI controls
+- **MIP Protocol**: Direct integration with MeOS online input
+- **[Radio Punch Relay Documentation](radio-punch-relay/README.md)**
 
-### 1. Advanced Fuzzy Matching
-- Levenshtein distance algorithm for typo detection
-- Jaro-Winkler distance for name similarity scoring
-- Configurable similarity thresholds
+## Technology Stack
 
-### 2. Phonetic Matching
-- Soundex algorithm for English names
-- Double Metaphone for broader phonetic matching
-- Handles accent marks and international names
+- **Frontend**: React 18.3 + TypeScript + Vite
+- **Desktop**: Electron with native file system access
+- **UI Framework**: Ant Design 5
+- **Database**: Better-SQLite3 for local storage
+- **Testing**: Vitest + Testing Library
+- **MeOS Integration**: XML-based API client (port 2009)
 
-### 3. Enhanced User Interface
-- Confidence scoring for matches (0-100%)
-- Multiple match suggestions ranked by probability
-- Quick approve/reject interface for bulk processing
-- Visual diff highlighting for name differences
+## Documentation Index
 
-### 4. Smart Learning System
-- Learns from manual corrections
-- Builds alias database for future matching
-- Common nickname mappings
+### Getting Started
+- [Getting Started Guide](GETTING_STARTED.md) - First-time setup and overview
+- [Running the Application](RUNNING_THE_APP.md) - Electron vs browser mode
+- [Development Setup](DEV_SETUP_COMPLETE.md) - Developer environment setup
+- [WARP.md](WARP.md) - Development commands and architecture
 
-## Files Structure
+### Features
+- [Multi-Class Feature](MULTI_CLASS_FEATURE.md) - Register runners for multiple classes
+- [Live Results Setup](LIVE_RESULTS_SETUP.md) - Configure live results display
+- [Live Results Documentation](LIVE_RESULTS_README.md) - Complete live results guide
+- [SQL Runner Converter](SQL_RUNNER_CONVERTER.md) - Convert legacy SQL databases
+- [XML Import Feature](XML_IMPORT_FEATURE.md) - Import IOF XML runner data
+
+### Troubleshooting
+- [SI Reader Troubleshooting](SI_READER_TROUBLESHOOTING.md) - Card reader connection issues
+- [Electron Startup Guide](ELECTRON_STARTUP_GUIDE.md) - Electron-specific issues
+- [Menu Access Guide](MENU_ACCESS_GUIDE.md) - Finding tools and utilities
+
+### Technical Documentation
+- [Live Results Improvements](LIVE_RESULTS_IMPROVEMENTS.md) - Recent enhancements
+- [Live Results API Progress](LIVE_RESULTS_API_PROGRESS.md) - API integration notes
+- [MeOS Sync Feature](docs/MEOS_SYNC_FEATURE.md) - JSON import synchronization
+- [Lost Time Calculation](docs/MEOS_LOST_TIME_CALCULATION.md) - MeOS algorithm details
+- [Bug Fixes](docs/LOST_TIME_BUG_FIX.md) - Recent bug fixes
+
+### Network Setup
+- [MySQL Network Setup](docs/MYSQL_NETWORK_SETUP.md) - Two-computer configuration
+- [MySQL Quick Reference](docs/MYSQL_QUICK_REFERENCE.md) - Quick setup card
+
+## Project Structure
 
 ```
-/improved_matching/
-├── php/
-│   ├── NameMatcher.php          # Core matching algorithms
-│   ├── FuzzyMatchUtils.php      # Fuzzy string matching utilities
-│   ├── PhoneticUtils.php        # Phonetic matching algorithms
-│   └── DatabaseUtils.php       # Enhanced DB operations
-├── js/
-│   ├── matching_interface.js    # Interactive UI components
-│   └── bulk_processing.js      # Batch processing tools
-├── css/
-│   └── matching_styles.css     # Enhanced styling
-└── sql/
-    ├── create_matching_tables.sql  # New database tables
-    └── sample_data.sql            # Test data
+meos-entry-build/
+├── src/
+│   ├── components/         # React UI components
+│   ├── services/          # Business logic and API clients
+│   ├── modules/           # Feature modules (event-builder, runner-database)
+│   ├── types/             # TypeScript type definitions
+│   └── test/              # Test setup and utilities
+├── public/                # Static assets and standalone HTML
+│   ├── live_results.html  # Standalone live results viewer
+│   └── server.py          # Python server for XML serving
+├── docs/                  # Additional documentation
+├── radio-punch-relay/     # Radio punch integration (optional)
+└── electron/              # Electron configuration
 ```
 
-## Installation
+## Development Commands
 
-1. Copy PHP files to your DVOA admin directory
-2. Run the SQL scripts to create new database tables
-3. Include the new matching system in your existing workflow
-4. Configure similarity thresholds in the config file
+```powershell
+# Development
+npm run dev              # Start dev server (browser mode)
+npm run electron:dev     # Start Electron app (full features)
+npm run build            # Build for production
 
-## Usage
+# Testing
+npm test                 # Run tests in watch mode
+npm run test:run         # Run tests once
+npm run test:coverage    # Generate coverage report
 
-The enhanced system integrates with the existing result journal workflow but provides much better matching suggestions and a more user-friendly interface for resolving conflicts.
+# Code Quality
+npm run lint             # Run ESLint
 
-## Testing
-
-Use the provided Hickory Training 25 CSV file to test the improved matching against the existing system.
-
-# React + TypeScript + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# Distribution
+npm run electron:build   # Build Electron app
+npm run pack:win         # Package for Windows x64
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Contributing
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+This is a DVOA (Delaware Valley Orienteering Association) project for managing orienteering events.
 
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## License
+
+MIT License - © 2024-2025 DVOA

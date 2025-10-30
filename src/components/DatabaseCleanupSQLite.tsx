@@ -650,6 +650,80 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
     }
   };
 
+  // Load seed database
+  const handleLoadSeedDatabase = () => {
+    Modal.confirm({
+      title: 'Load Seed Database?',
+      content: (
+        <div>
+          <Paragraph>
+            This will replace your current database with the pre-populated seed database.
+          </Paragraph>
+          <Alert
+            message="Your current database will be automatically backed up"
+            description="A backup file will be downloaded before loading the seed database."
+            type="warning"
+            showIcon
+          />
+        </div>
+      ),
+      okText: 'Load Seed Database',
+      okType: 'danger',
+      cancelText: 'Cancel',
+      onOk: async () => {
+        setLoading(true);
+        try {
+          // Step 1: Export current database as backup
+          messageApi.loading('Creating backup of current database...', 0);
+          const backupData = sqliteRunnerDB.exportDatabase();
+          const backupBlob = new Blob([backupData], { type: 'application/octet-stream' });
+          const backupUrl = URL.createObjectURL(backupBlob);
+          const backupLink = document.createElement('a');
+          backupLink.href = backupUrl;
+          backupLink.download = `runner_database_backup_${new Date().toISOString().slice(0, 10).replace(/-/g, '_')}.db`;
+          document.body.appendChild(backupLink);
+          backupLink.click();
+          document.body.removeChild(backupLink);
+          URL.revokeObjectURL(backupUrl);
+          messageApi.destroy();
+          
+          // Step 2: Load seed database
+          messageApi.loading('Loading seed database...', 0);
+          
+          // Determine the correct path based on environment
+          let seedPath = '/runner_database_seed.db';
+          if (window.location.protocol === 'file:') {
+            const basePath = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/'));
+            seedPath = window.location.origin + basePath + '/runner_database_seed.db';
+          }
+          
+          const response = await fetch(seedPath);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch seed database (status: ${response.status})`);
+          }
+          
+          const arrayBuffer = await response.arrayBuffer();
+          const seedData = new Uint8Array(arrayBuffer);
+          
+          // Step 3: Import seed database
+          sqliteRunnerDB.importDatabase(seedData);
+          messageApi.destroy();
+          
+          // Step 4: Reload all data
+          await loadAllData();
+          
+          messageApi.success('Seed database loaded successfully! Your previous database has been backed up.');
+        } catch (error) {
+          console.error('[DatabaseCleanup] Failed to load seed database:', error);
+          messageApi.destroy();
+          messageApi.error('Failed to load seed database. Your current database is unchanged.');
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
+  };
+
   // Filter runners
   const filteredRunners = searchText
     ? sqliteRunnerDB.searchRunners(searchText, 100)
@@ -880,6 +954,9 @@ export const DatabaseCleanupSQLite: React.FC<DatabaseCleanupProps> = ({ onBack }
               </Button>
               <Button icon={<DownloadOutlined />} onClick={handleExport}>
                 Export Database
+              </Button>
+              <Button icon={<DownloadOutlined />} onClick={handleLoadSeedDatabase} loading={loading}>
+                Load Seed Database
               </Button>
               <Button 
                 icon={<DeleteOutlined />} 

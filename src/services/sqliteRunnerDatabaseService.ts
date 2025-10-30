@@ -66,12 +66,15 @@ class SQLiteRunnerDatabaseService {
       const savedDb = localStorage.getItem('sqlite_runner_db');
       
       if (savedDb) {
+        console.log('[SQLiteDB] Loading existing database from localStorage');
         const buffer = this.base64ToUint8Array(savedDb);
         this.db = new this.SQL.Database(buffer);
       } else {
+        console.log('[SQLiteDB] No existing database in localStorage, attempting to load seed...');
         // No saved database - try to load seed database
         const seedLoaded = await this.loadSeedDatabase();
         if (!seedLoaded) {
+          console.log('[SQLiteDB] No seed database found, creating empty database');
           // Create empty database
           this.db = new this.SQL.Database();
         }

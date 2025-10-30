@@ -460,10 +460,11 @@ async function parseResultsWithAnalysis(resultsData, competitors = []) {
             const classId = base['@attributes']?.cls;
             const className = getClassName(classId);
             const stat = parseInt(base['@attributes']?.stat || '0');
+            const stValue = parseInt(base['@attributes']?.st || '0'); // Start time in 1/10 seconds since midnight
             const name = base['#text'] || '';
             const org = base['@attributes']?.org;
             
-            console.log(`  - Competitor ${name} (ID: ${compId}): stat=${stat}, class=${className}`);
+            // Competitor processing for running time calculation
             
             // Only include if status is 0 (unknown/checked-in) or 2 (no timing)
             if (stat !== 0 && stat !== 2) {
@@ -479,16 +480,31 @@ async function parseResultsWithAnalysis(resultsData, competitors = []) {
                 };
             }
             
-            // Add as checked-in runner
+            // Determine status: running if they have a start time, otherwise checked-in
+            const runnerStatus = stValue > 0 ? 'running' : 'checked_in';
+            
+            // Calculate running time if started
+            let runningTime = null;
+            if (stValue > 0) {
+                // stValue is in 1/10 seconds since midnight
+                const secondsSinceMidnight = stValue / 10;
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const startTime = today.getTime() + (secondsSinceMidnight * 1000);
+                const now = Date.now();
+                runningTime = now - startTime; // milliseconds
+            }
+            
+            // Add runner
             byClass[className].runners.push({
                 competitorId: compId,
                 fullName: name,
                 club: '', // We'd need to lookup org ID to get club name
                 position: null,
-                totalTime: null,
+                totalTime: runningTime, // Use running time as totalTime for display
                 timeBehindLeader: null,
                 timeLost: null,
-                status: 'checked_in'
+                status: runnerStatus
             });
             
             checkedInCount++;
@@ -842,9 +858,14 @@ function findOptimalLayoutForScreen(classResults, availableHeight) {
     
     const availableWidth = (window.innerWidth || 1920) - 20;
     const minColumnWidth = 280;
-    const maxColumns = Math.min(8, classResults.length, Math.floor(availableWidth / minColumnWidth));
     
-    console.log(`Finding optimal layout for screen: ${classResults.length} classes, max ${maxColumns} columns`);
+    // Smart max columns: prefer fewer columns to use vertical space better
+    // Don't exceed number of classes, and cap based on screen width
+    const maxColumnsByWidth = Math.floor(availableWidth / minColumnWidth);
+    const maxColumnsByClasses = Math.min(classResults.length, Math.ceil(classResults.length / 2)); // At least 2 classes per column
+    const maxColumns = Math.min(6, maxColumnsByWidth, maxColumnsByClasses);
+    
+    console.log(`Finding optimal layout for screen: ${classResults.length} classes, max ${maxColumns} columns (width allows ${maxColumnsByWidth})`);
     
     for (let numColumns = 1; numColumns <= maxColumns; numColumns++) {
         const columnSections = distributeToColumns(classResults, numColumns);
@@ -855,7 +876,9 @@ function findOptimalLayoutForScreen(classResults, availableHeight) {
         
         console.log(`  ${numColumns} cols: ${score}px font`);
         
-        if (!bestLayout || score > bestFontSize) {
+        // Prefer fewer columns if font size is similar (within 10%)
+        // This prioritizes vertical space utilization
+        if (!bestLayout || score > bestFontSize * 1.1) {
             bestLayout = { optimalColumns: numColumns, columnSections, fontSizes };
             bestFontSize = score;
         }
@@ -873,15 +896,16 @@ function findOptimalLayoutForScreen(classResults, availableHeight) {
 
 function distributeToColumns(classResults, numColumns) {
     const columns = Array(numColumns).fill(null).map(() => []);
-    const classesPerColumn = Math.ceil(classResults.length / numColumns);
     
-    classResults.forEach((classResult, index) => {
-        const columnIndex = Math.floor(index / classesPerColumn);
-        if (columnIndex < numColumns) {
-            columns[columnIndex].push(classResult);
-        } else {
-            columns[numColumns - 1].push(classResult);
-        }
+    // Try to balance by runner count instead of just class count
+    // This creates more even columns when classes have different sizes
+    const columnRunnerCounts = Array(numColumns).fill(0);
+    
+    classResults.forEach(classResult => {
+        // Put this class in the column with fewest runners so far
+        const minIndex = columnRunnerCounts.indexOf(Math.min(...columnRunnerCounts));
+        columns[minIndex].push(classResult);
+        columnRunnerCounts[minIndex] += classResult.runners.length;
     });
     
     return columns;
@@ -1051,18 +1075,27 @@ function generateScreenHTML(classResults, screenNumber, totalScreens) {
 
 function generateClassHTML(classResult) {
     const totalRunners = classResult.runners.length;
-    const finishedRunners = classResult.runners.filter(r => r.totalTime);
-    const checkedInRunners = classResult.runners.filter(r => !r.totalTime && r.status === 'checked_in');
+    const finishedRunners = classResult.runners.filter(r => r.status === 'finished');
+    const runningRunners = classResult.runners.filter(r => r.status === 'running');
+    const checkedInRunners = classResult.runners.filter(r => r.status === 'checked_in');
     const finishedCount = finishedRunners.length;
     const runnersText = `${finishedCount}/${totalRunners}`;
     
+    // Merge finished and running runners, sorted by time
+    const activeRunners = [...finishedRunners, ...runningRunners].sort((a, b) => {
+        const aTime = a.totalTime || Infinity;
+        const bTime = b.totalTime || Infinity;
+        return aTime - bTime;
+    });
+    
     const generateRunnerRow = (runner, isCheckedIn = false) => {
+        // Keep position-based styling for finished runners
         const rowClass = runner.position === 1 ? 'gold-row' :
                        runner.position === 2 ? 'silver-row' :
                        runner.position === 3 ? 'bronze-row' : '';
         
         if (isCheckedIn) {
-            // Checked-in runner display
+            // Checked-in runners only
             return `
                 <tr style="opacity: 0.6;">
                     <td class="position">-</td>
@@ -1073,6 +1106,20 @@ function generateClassHTML(classResult) {
             `;
         }
         
+        // Running runner display (mixed with finished)
+        if (runner.status === 'running') {
+            return `
+                <tr style="background: #ffffcc;">
+                    <td class="position">-</td>
+                    <td class="runner-name">${runner.fullName}</td>
+                    <td class="club">${runner.club || ''}</td>
+                    <td class="time" style="color: #0066cc; font-weight: bold;">${formatTime(runner.totalTime)}</td>
+                    <td colspan="2" style="text-align: center; color: #0066cc; font-weight: bold;">Running</td>
+                </tr>
+            `;
+        }
+        
+        // Finished runner display
         return `
             <tr class="${rowClass}">
                 <td class="position">${runner.position || '-'}</td>
@@ -1106,8 +1153,8 @@ function generateClassHTML(classResult) {
                 </thead>
                 <tbody>
                     ${totalRunners === 0 ? '<tr><td colspan="6" style="text-align: center; font-style: italic;">No runners</td></tr>' : ''}
-                    ${finishedRunners.map(r => generateRunnerRow(r, false)).join('')}
-                    ${checkedInRunners.length > 0 && finishedRunners.length > 0 ? '<tr><td colspan="6" style="border-top: 2px solid #999; padding: 0;"></td></tr>' : ''}
+                    ${activeRunners.map(r => generateRunnerRow(r, false)).join('')}
+                    ${checkedInRunners.length > 0 && activeRunners.length > 0 ? '<tr><td colspan="6" style="border-top: 2px solid #999; padding: 0;"></td></tr>' : ''}
                     ${checkedInRunners.map(r => generateRunnerRow(r, true)).join('')}
                 </tbody>
             </table>

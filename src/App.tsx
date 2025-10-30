@@ -1,16 +1,18 @@
-import { useState, useEffect } from 'react';
-import { Layout, ConfigProvider } from 'antd';
+import { useState, useEffect, lazy, Suspense } from 'react';
+import { Layout, ConfigProvider, Spin } from 'antd';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
-import EventBuilder from './components/EventBuilder';
-import EventDayOps from './components/EventDayOps';
-import EventDayHome from './components/EventDayHome';
-import DatabaseManager from './components/DatabaseManager';
-import LiveResultsDisplay from './components/LiveResultsDisplay';
-import ResultsExport from './components/ResultsExport';
-import Tools from './components/Tools';
-import DatabaseCleanupSQLite from './components/DatabaseCleanupSQLite';
 import './styles/professional.css';
+
+// Lazy load heavy components
+const EventBuilder = lazy(() => import('./components/EventBuilder'));
+const EventDayOps = lazy(() => import('./components/EventDayOps'));
+const EventDayHome = lazy(() => import('./components/EventDayHome'));
+const DatabaseManager = lazy(() => import('./components/DatabaseManager'));
+const LiveResultsDisplay = lazy(() => import('./components/LiveResultsDisplay'));
+const ResultsExport = lazy(() => import('./components/ResultsExport'));
+const Tools = lazy(() => import('./components/Tools'));
+const DatabaseCleanupSQLite = lazy(() => import('./components/DatabaseCleanupSQLite'));
 
 type CurrentView = 'dashboard' | 'eventBuilder' | 'eventDayOps' | 'eventDayDashboard' | 'databaseManager' | 'liveResults' | 'resultsExport' | 'tools' | 'databaseCleanup';
 
@@ -41,13 +43,11 @@ function App() {
   useEffect(() => {
     // Listen for SQL Converter menu item
     const handleMenuSqlConverter = () => {
-      console.log('[App] Opening SQL Converter from menu...');
       setCurrentView('tools');
     };
 
     // Listen for Database Cleanup menu item
     const handleMenuDatabaseCleanup = () => {
-      console.log('[App] Opening Database Cleanup from menu...');
       setCurrentView('databaseCleanup');
     };
 
@@ -77,50 +77,67 @@ function App() {
   }, []);
 
   const renderCurrentView = () => {
-    switch (currentView) {
-      case 'dashboard':
-        return (
-          <Dashboard
-            onNavigateToEventBuilder={() => setCurrentView('eventBuilder')}
-            onNavigateToEventDayOps={() => setCurrentView('eventDayOps')}
-            onNavigateToResultsExport={() => setCurrentView('resultsExport')}
-            onNavigateToTools={() => setCurrentView('tools')}
-            onNavigateToDatabaseCleanup={() => setCurrentView('databaseCleanup')}
-          />
-        );
-      case 'eventBuilder':
-        return (
-          <EventBuilder onBack={() => setCurrentView('dashboard')} />
-        );
-      case 'eventDayOps':
-        return (
-          <EventDayOps 
-            onBack={() => setCurrentView('dashboard')} 
-            onOpenDayDashboard={() => setCurrentView('eventDayDashboard')} 
-          />
-        );
-      case 'eventDayDashboard':
-        return (
-          <div style={{ width: '100%', height: '100vh', overflow: 'hidden' }}>
-            <EventDayHome 
-              onBack={() => setCurrentView('eventDayOps')}
-              onBackToMain={() => setCurrentView('dashboard')}
+    const content = (() => {
+      switch (currentView) {
+        case 'dashboard':
+          return (
+            <Dashboard
+              onNavigateToEventBuilder={() => setCurrentView('eventBuilder')}
+              onNavigateToEventDayOps={() => setCurrentView('eventDayOps')}
+              onNavigateToResultsExport={() => setCurrentView('resultsExport')}
+              onNavigateToTools={() => setCurrentView('tools')}
+              onNavigateToDatabaseCleanup={() => setCurrentView('databaseCleanup')}
             />
+          );
+        case 'eventBuilder':
+          return (
+            <EventBuilder onBack={() => setCurrentView('dashboard')} />
+          );
+        case 'eventDayOps':
+          return (
+            <EventDayOps 
+              onBack={() => setCurrentView('dashboard')} 
+              onOpenDayDashboard={() => setCurrentView('eventDayDashboard')} 
+            />
+          );
+        case 'eventDayDashboard':
+          return (
+            <div style={{ width: '100%', height: '100vh', overflow: 'hidden' }}>
+              <EventDayHome 
+                onBack={() => setCurrentView('eventDayOps')}
+                onBackToMain={() => setCurrentView('dashboard')}
+              />
+            </div>
+          );
+        case 'databaseManager':
+          return <DatabaseManager />;
+        case 'liveResults':
+          return <LiveResultsDisplay />;
+        case 'resultsExport':
+          return <ResultsExport />;
+        case 'tools':
+          return <Tools onBack={() => setCurrentView('dashboard')} />;
+        case 'databaseCleanup':
+          return <DatabaseCleanupSQLite onBack={() => setCurrentView('dashboard')} />;
+        default:
+          return null;
+      }
+    })();
+
+    // Wrap lazy-loaded components in Suspense
+    if (currentView !== 'dashboard') {
+      return (
+        <Suspense fallback={
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+            <Spin size="large" tip="Loading..." />
           </div>
-        );
-      case 'databaseManager':
-        return <DatabaseManager />;
-      case 'liveResults':
-        return <LiveResultsDisplay />;
-      case 'resultsExport':
-        return <ResultsExport />;
-      case 'tools':
-        return <Tools onBack={() => setCurrentView('dashboard')} />;
-      case 'databaseCleanup':
-        return <DatabaseCleanupSQLite onBack={() => setCurrentView('dashboard')} />;
-      default:
-        return null;
+        }>
+          {content}
+        </Suspense>
+      );
     }
+
+    return content;
   };
 
   return (

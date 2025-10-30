@@ -28,13 +28,9 @@ class MeosClassService {
 
     if (needsRefresh) {
       try {
-        console.log('[MeosClassService] Fetching classes from MeOS API...');
         this.classes = await meosApi.getClasses();
         this.lastFetch = now;
-        console.log(`[MeosClassService] Loaded ${this.classes.length} classes:`, 
-                   this.classes.map(c => `${c.name}(${c.id})`));
       } catch (error) {
-        console.error('[MeosClassService] Failed to fetch classes:', error);
         // Keep existing classes if fetch fails
       }
     }

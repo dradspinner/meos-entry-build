@@ -1,5 +1,7 @@
 # Live Results System
 
+> 📚 **Quick Navigation**: See [DOCS_INDEX.md](DOCS_INDEX.md) for complete documentation index
+
 ## Overview
 The live results system displays real-time orienteering race results with automatic updates, showing checked-in runners, in-forest runners, and finishers with split analysis and time-lost calculations.
 

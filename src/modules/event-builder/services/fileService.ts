@@ -21,8 +21,16 @@ export class FileService {
         cardFee: 10,
         youthAge: 16,
         lateEntryFactor: "50 %",
-        features: "CL+CC+RF+RD",
-        payModes: "Cash|0"
+        maxTime: -1,
+        currencyFactor: 1,
+        currencySymbol: "$",
+        currencySeparator: ".",
+        currencyPreSymbol: 1,
+        features: "CL+NW+RF+RD",
+        longTimes: 1,
+        payModes: "Cash|0",
+        transferFlags: 3,
+        extraFields: "3|4|5|303|304|305|307"
       },
       courses: [
         {
@@ -78,7 +86,7 @@ export class FileService {
         }
       ],
       classes: [
-        { id: 1, name: "Blue", courseId: 1, allowQuickEntry: true, sortIndex: 10 },
+        { id: 1, name: "Blue", courseId: 1, allowQuickEntry: true, classType: "Open", sortIndex: 10 },
         { id: 2, name: "Brown", courseId: 2, allowQuickEntry: true, sortIndex: 20 },
         { id: 3, name: "Green", courseId: 3, allowQuickEntry: true, sortIndex: 30 },
         { id: 4, name: "Orange", courseId: 4, allowQuickEntry: true, sortIndex: 40 },
