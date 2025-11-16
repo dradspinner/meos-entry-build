@@ -56,6 +56,7 @@ function parseOE12XML(xmlContent) {
       splitElements.forEach(split => {
         const controlCode = split.querySelector('ControlCode')?.textContent?.trim() || '';
         const time = split.querySelector('Time')?.textContent?.trim() || '0';
+        // Include all splits including finish punch
         splits.push({ controlCode, time: parseInt(time) });
       });
       
@@ -235,6 +236,17 @@ tr#fix { background-color: #E0FFFF; }
       
       // Neither OK - sort by name
       return a.name.localeCompare(b.name);
+    });
+    
+    // Assign course-based place numbers (renumber 1, 2, 3... based on course finish order)
+    let coursePlace = 1;
+    allRunnersOnCourse.forEach((runner) => {
+      if (runner.status === 'OK') {
+        runner.place = coursePlace.toString();
+        coursePlace++;
+      } else {
+        runner.place = ''; // No place for non-finishers
+      }
     });
     
     const runnersWithSplits = allRunnersOnCourse;
