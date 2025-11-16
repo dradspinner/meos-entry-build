@@ -56,9 +56,18 @@ function parseOE12XML(xmlContent) {
       splitElements.forEach(split => {
         const controlCode = split.querySelector('ControlCode')?.textContent?.trim() || '';
         const time = split.querySelector('Time')?.textContent?.trim() || '0';
-        // Include all splits including finish punch
         splits.push({ controlCode, time: parseInt(time) });
       });
+      
+      // Add finish split using the total time from Result (only for OK status)
+      if (status === 'OK' && splits.length > 0 && timeText && parseInt(timeText) > 0) {
+        const finishTime = parseInt(timeText);
+        const lastSplitTime = splits[splits.length - 1].time;
+        // Only add if finish time is different from last split (i.e., there's a run-in)
+        if (finishTime !== lastSplitTime) {
+          splits.push({ controlCode: 'F', time: finishTime });
+        }
+      }
       
       runners.push({
         id: `${classId}_${position}`,
