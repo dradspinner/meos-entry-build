@@ -220,8 +220,24 @@ tr#fix { background-color: #E0FFFF; }
       }
     });
     
+    // Sort all runners on this course by finish time (OK status first, then by time)
+    allRunnersOnCourse.sort((a, b) => {
+      // OK status comes first
+      if (a.status === 'OK' && b.status !== 'OK') return -1;
+      if (a.status !== 'OK' && b.status === 'OK') return 1;
+      
+      // Both OK - sort by time
+      if (a.status === 'OK' && b.status === 'OK') {
+        const timeA = typeof a.runTime === 'string' ? parseInt(a.runTime) : a.runTime;
+        const timeB = typeof b.runTime === 'string' ? parseInt(b.runTime) : b.runTime;
+        return timeA - timeB;
+      }
+      
+      // Neither OK - sort by name
+      return a.name.localeCompare(b.name);
+    });
+    
     const runnersWithSplits = allRunnersOnCourse;
-    const runnersWithSplits = classResult.runners.filter(r => r.splits && r.splits.length > 0);
     if (runnersWithSplits.length === 0) return;
     
     const courseInfo = [];
