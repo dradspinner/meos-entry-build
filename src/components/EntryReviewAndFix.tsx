@@ -27,7 +27,11 @@ interface ReviewItem {
 
 function normalizeEntryField(e: LocalEntry, field: FieldKey): string | number | undefined {
   switch (field) {
-    case 'club': return (e.club || '').trim();
+    case 'club': {
+      const club = (e.club || '').trim();
+      // Treat 'none' as empty/no club
+      return club.toLowerCase() === 'none' ? '' : club;
+    }
     case 'birthYear': return e.birthYear ? parseInt(e.birthYear) : undefined;
     case 'sex': return (e.sex || '').trim();
     case 'cardNumber': return e.cardNumber && e.cardNumber.trim() !== '' && e.cardNumber !== '0' ? parseInt(e.cardNumber) : undefined;
@@ -405,12 +409,19 @@ const EntryReviewAndFix: React.FC = () => {
     {
       title: 'Runner',
       key: 'name',
-      render: (record: ReviewItem) => (
-        <Space direction="vertical" size={2}>
-          <span>{record.entry.name.first} {record.entry.name.last || <Text type="secondary">(group)</Text>}</span>
-          <Text type="secondary" style={{ fontSize: 12 }}>{record.entry.club}</Text>
-        </Space>
-      )
+      render: (record: ReviewItem) => {
+        // Normalize club display - treat 'none', empty string, or null as 'No club'
+        const clubDisplay = record.entry.club && record.entry.club.toLowerCase() !== 'none' 
+          ? record.entry.club 
+          : <Text type="secondary" italic>(No club)</Text>;
+        
+        return (
+          <Space direction="vertical" size={2}>
+            <span>{record.entry.name.first} {record.entry.name.last || <Text type="secondary">(group)</Text>}</span>
+            <Text type="secondary" style={{ fontSize: 12 }}>{clubDisplay}</Text>
+          </Space>
+        );
+      }
     },
     {
       title: 'Match',

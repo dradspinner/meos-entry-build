@@ -711,6 +711,12 @@ export class MeosApiClient {
               const card = entry.Card || {};
               const entryClass = entry.Class || {};
               
+      const clubName =
+                // Organisation/Club name forms
+                person.Organisation?.Name?.['#text'] || person.Organisation?.Name || person.Organisation?.['#text'] ||
+                person.Club?.Name?.['#text'] || person.Club?.Name || person.Club?.['#text'] || person.Club ||
+                entry.Organisation?.Name?.['#text'] || entry.Organisation?.Name || entry.Organisation?.['#text'] || '';
+
               return {
                 id: entry['@attributes']?.id,
                 name: {
@@ -723,7 +729,7 @@ export class MeosApiClient {
                   name: entryClass.Name?.['#text'] || entryClass.Name || '',
                   shortName: entryClass.ShortName?.['#text'] || entryClass.ShortName || '',
                 },
-                club: person.Club?.['#text'] || person.Club || '',
+                club: clubName,
                 birthYear: person.BirthDate?.['#text'] || person.BirthDate || '',
                 sex: person.Sex?.['#text'] || person.Sex || '',
                 nationality: person.Nationality?.['#text'] || person.Nationality || '',
@@ -743,10 +749,8 @@ export class MeosApiClient {
     }
 
     console.warn('[MeosAPI] No entries found with any available endpoint');
-    
-    // For development: return mock data to test the dashboard
-    console.log('[MeosAPI] Returning mock data for development/testing');
-    return this.getMockEntries();
+    // Do not return mock data here; let caller decide fallback
+    return [];
   }
 
   /**
@@ -1269,6 +1273,39 @@ export class MeosApiClient {
    */
   getConfig(): MeosApiConfig {
     return { ...this.config };
+  }
+
+  /**
+   * Update competitor fields in MeOS
+   * 
+   * NOTE: MeOS REST API does NOT support updating existing competitors.
+   * According to the official MeOS REST API documentation, there is no endpoint
+   * for modifying competitor data after creation. The API only supports:
+   * - Reading competitor data (get=competitor, lookup=competitor)
+   * - Creating new entries (entry parameter)
+   * 
+   * Competitors must be updated manually through the MeOS UI.
+   * 
+   * @see MeOS Information Service.html - No update/set/modify endpoints documented
+   */
+  async updateCompetitorFields(competitorId: number, updates: {
+    firstName?: string;
+    lastName?: string;
+    name?: string;
+    club?: string;
+    birthYear?: number | string;
+    sex?: 'M' | 'F' | string;
+    cardNumber?: number | string;
+  }): Promise<{ success: boolean; error?: string; raw?: any }> {
+    console.warn(`[MeosAPI] updateCompetitorFields called for competitor ${competitorId}`);
+    console.warn('[MeosAPI] MeOS REST API does not support updating existing competitors.');
+    console.warn('[MeosAPI] Competitors must be updated manually through the MeOS UI.');
+    console.warn('[MeosAPI] Requested updates:', updates);
+    
+    return { 
+      success: false, 
+      error: 'MeOS REST API does not support updating competitors. Please update manually in MeOS.' 
+    };
   }
 
   /**

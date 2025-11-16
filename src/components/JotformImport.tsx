@@ -152,8 +152,8 @@ const JotformImport: React.FC = () => {
       const content = e.target?.result as string;
       const firstLine = content.split('\n')[0] || '';
       
-      // Detect delimiter: OE12 uses comma, Jotform uses semicolon
-      const delimiter = firstLine.includes('OE0002_V12') || firstLine.split(',').length > firstLine.split(';').length ? ',' : ';';
+      // Detect delimiter: OE12 (both OE0001 and OE0002) uses comma, Jotform uses semicolon
+      const delimiter = firstLine.includes('OE0001_V12') || firstLine.includes('OE0002_V12') || firstLine.split(',').length > firstLine.split(';').length ? ',' : ';';
       
       console.log(`[CSV Parse] Auto-detected delimiter: "${delimiter}"`);
       
@@ -196,7 +196,7 @@ const JotformImport: React.FC = () => {
           console.log(`[CSV Debug] Headers:`, results.meta.fields);
           
           // Detect format based on headers to use correct parsing function
-          const isOE12 = results.meta.fields?.includes('OE0002_V12') || results.meta.fields?.includes('Entry Id');
+          const isOE12 = results.meta.fields?.includes('OE0001_V12') || results.meta.fields?.includes('OE0002_V12') || results.meta.fields?.includes('Entry Id');
           const detectedFormat = isOE12 ? 'OE12' : 'Jotform';
           console.log(`[CSV Debug] Format detected:`, detectedFormat);
           
@@ -600,7 +600,8 @@ const JotformImport: React.FC = () => {
       }
       
       // Map OE12 fields to our internal format
-      const chipValue = row['Chipno1'] || row['Chipno2'] || row['Chipno3'] || row['Chipno4'] || row['Chipno5'] || row['Chipno6'] || '';
+      // Support both OE0001 (single Chipno) and OE0002 (Chipno1-6) formats
+      const chipValue = row['Chipno'] || row['Chipno1'] || row['Chipno2'] || row['Chipno3'] || row['Chipno4'] || row['Chipno5'] || row['Chipno6'] || '';
       const clubValue = row['Cl.name'] || row['City'] || 'DVOA'; // Prefer club name, fallback to City for OE12
       
       const entry: JotformEntry = {

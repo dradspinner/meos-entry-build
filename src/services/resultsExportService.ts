@@ -12,6 +12,7 @@ interface RunnerResult {
   startTime: string; // in 1/10 seconds
   runTime: string; // in 1/10 seconds
   place: string;
+  gender?: string; // 'F' or 'M'
   splits?: Split[];
 }
 
@@ -25,6 +26,7 @@ interface ClassResult {
   classId: string;
   className: string;
   courseId?: string;
+  courseName?: string;
   courseLength?: number;
   runners: RunnerResult[];
 }
@@ -47,9 +49,6 @@ interface CourseSplitAnalysis {
     behindBest: number;
   }[];
 }
-
-// Course color order as per user rules
-const COURSE_COLOR_ORDER = ['white', 'yellow', 'orange', 'brown', 'green', 'red', 'blue'];
 
 class ResultsExportService {
   /**
@@ -76,6 +75,8 @@ class ResultsExportService {
       
       const classId = classElement?.querySelector('Id')?.textContent?.trim() || '';
       const className = classElement?.querySelector('Name')?.textContent?.trim() || `Class ${classId}`;
+      const courseId = courseElement?.querySelector('Id')?.textContent?.trim();
+      const courseName = courseElement?.querySelector('Name')?.textContent?.trim();
       const courseLength = courseElement?.querySelector('Length')?.textContent?.trim();
       
       const runners: RunnerResult[] = [];
@@ -94,6 +95,9 @@ class ResultsExportService {
         const familyName = personElement.querySelector('Name > Family')?.textContent?.trim() || '';
         const givenName = personElement.querySelector('Name > Given')?.textContent?.trim() || '';
         const name = `${givenName} ${familyName}`.trim();
+        
+        // Extract gender from XML
+        const gender = personElement.getAttribute('sex') || '';
         
         // Extract club
         const club = orgElement?.querySelector('Name')?.textContent?.trim() || '';
@@ -120,11 +124,12 @@ class ResultsExportService {
           startTime: '0',
           runTime: timeText,
           place: position,
+          gender,
           splits: splits.length > 0 ? splits : undefined
         });
       });
       
-      // Sort runners by place (finished first), then by name
+      // Sort runners by place (finished first), then by name (match OE ordering within class)
       runners.sort((a, b) => {
         const placeA = parseInt(a.place) || 999;
         const placeB = parseInt(b.place) || 999;
@@ -139,60 +144,15 @@ class ResultsExportService {
       results.push({
         classId,
         className,
+        courseId,
+        courseName,
         courseLength: courseLength ? parseInt(courseLength) : undefined,
         runners
       });
     });
     
-    // Sort classes by course color order if class names contain color keywords
-    results.sort((a, b) => {
-      const colorA = this.extractCourseColor(a.className);
-      const colorB = this.extractCourseColor(b.className);
-      
-      if (colorA && colorB) {
-        const indexA = COURSE_COLOR_ORDER.indexOf(colorA);
-        const indexB = COURSE_COLOR_ORDER.indexOf(colorB);
-        
-        if (indexA !== -1 && indexB !== -1) {
-          return indexA - indexB;
-        }
-      }
-      
-      return a.className.localeCompare(b.className);
-    });
-    
+    // Preserve OE class order as it appears in the XML (no re-sorting here)
     return results;
-  }
-  
-  /**
-   * Extract course color from class name
-   */
-  private extractCourseColor(className: string): string | null {
-    const lowerName = className.toLowerCase();
-    
-    for (const color of COURSE_COLOR_ORDER) {
-      if (lowerName.includes(color)) {
-        return color;
-      }
-    }
-    
-    return null;
-  }
-  
-  /**
-   * Get status text from MeOS status code
-   */
-  private getStatusText(statusCode: string): string {
-    const code = parseInt(statusCode);
-    
-    switch (code) {
-      case 1: return 'OK';
-      case 3: return 'MP'; // Mispunch
-      case 4: return 'DNS'; // Did Not Start
-      case 5: return 'DNF'; // Did Not Finish
-      case 20: return 'NotStarted';
-      default: return 'Unknown';
-    }
   }
   
   /**
@@ -588,11 +548,11 @@ class ResultsExportService {
   generateSplitsByCourseHTML(classResults: ClassResult[], eventName: string, eventDate: string): string {
     const timestamp = new Date().toLocaleString();
     
-    // Group classes by course (using class name as course identifier for now)
+    // Group classes by course name
     const courseMap = new Map<string, ClassResult[]>();
     
     classResults.forEach(classResult => {
-      const courseName = classResult.className;
+      const courseName = classResult.courseName || classResult.className;
       if (!courseMap.has(courseName)) {
         courseMap.set(courseName, []);
       }
@@ -893,14 +853,42 @@ tr#fix { background-color: #E0FFFF; }
 <table id=ln><tr><td>&nbsp</td></tr></table>
 `;
     
-    // Generate splits for each class
+    // Group classes by course name for splits
+    const courseMap = new Map<string, ClassResult[]>();
     classResults.forEach(classResult => {
-      const runnersWithSplits = classResult.runners.filter(r => r.splits && r.splits.length > 0);
+      const courseName = classResult.courseName || classResult.className;
+      if (!courseMap.has(courseName)) {
+        courseMap.set(courseName, []);
+      }
+      courseMap.get(courseName)!.push(classResult);
+    });
+    
+    // Generate splits for each course
+    courseMap.forEach((classes, courseName) => {
+      // Get all runners from all classes on this course
+      const allRunnersOnCourse: RunnerResult[] = [];
+      let courseLength: number | undefined;
+      
+      classes.forEach(classResult => {
+        const runnersWithSplits = classResult.runners.filter(r => r.splits && r.splits.length > 0);
+        runnersWithSplits.forEach(runner => {
+          allRunnersOnCourse.push({
+            ...runner,
+            // Store class name for display in the "Cl." column
+            club: `${runner.club}|${classResult.className}` // Temporarily store class name here
+          });
+        });
+        if (!courseLength && classResult.courseLength) {
+          courseLength = classResult.courseLength;
+        }
+      });
+      
+      const runnersWithSplits = allRunnersOnCourse;
       if (runnersWithSplits.length === 0) return;
       
       const courseInfo = [];
-      if (classResult.courseLength) {
-        courseInfo.push(`${(classResult.courseLength / 1000).toFixed(1)} km`);
+      if (courseLength) {
+        courseInfo.push(`${(courseLength / 1000).toFixed(1)} km`);
       }
       const courseInfoText = courseInfo.join('  ');
       
@@ -911,7 +899,7 @@ tr#fix { background-color: #E0FFFF; }
 <table id=ln><tr><td>&nbsp</td></tr></table>
 <table width=1382px>
 <tbody>
-<tr><td id=c00 width=248px>${classResult.className}  (${runnersWithSplits.length})<td id=c01 width=168px>${courseInfoText}<td id=c02 width=82px>${controlsText}<td id="header"></td>
+<tr><td id=c00 width=248px>${courseName}  (${runnersWithSplits.length})<td id=c01 width=168px>${courseInfoText}<td id=c02 width=82px>${controlsText}<td id="header"></td>
 </tr>
 </tbody>
 </table>
@@ -931,8 +919,8 @@ tr#fix { background-color: #E0FFFF; }
 <table width=1382px>
 <col width=40px>
 <col width=50px>
-<col width=168px>
-<col width=56px>
+<col width=150px>
+<col width=90px>
 <col width=74px>`;
       
       for (let i = 0; i < maxControlsPerRow; i++) {
@@ -954,8 +942,8 @@ tr#fix { background-color: #E0FFFF; }
 <table width=1382px>
 <col width=40px>
 <col width=50px>
-<col width=168px>
-<col width=56px>
+<col width=150px>
+<col width=90px>
 <col width=74px>`;
       
       for (let i = 0; i < maxControlsPerRow; i++) {
@@ -1034,8 +1022,11 @@ tr#fix { background-color: #E0FFFF; }
           prevTime = cumTime;
         });
         
+        // Extract class name and club from the combined field
+        const [actualClub, className] = (runner.club || '|').split('|');
+        
         // Row 1: Name and cumulative times (first set of controls)
-        html += `<tr ${bgClass}><td id=c10>${place}<td id=c11>${stno}<td id=c12><nobr>${runner.name}</nobr><td><nobr>${classResult.className}</nobr><td id=c14>${totalTime}`;
+        html += `<tr ${bgClass}><td id=c10>${place}<td id=c11>${stno}<td id=c12><nobr>${runner.name}</nobr><td><nobr>${className || ''}</nobr><td id=c14>${totalTime}`;
         
         const firstRowControls = Math.min(maxControlsPerRow, runner.splits!.length);
         for (let i = 0; i < firstRowControls; i++) {
@@ -1052,7 +1043,7 @@ tr#fix { background-color: #E0FFFF; }
         html += `</tr>\n`;
         
         // Row 2: Club and leg times (first set of controls)
-        html += `<tr><td id=c10><td id=c11><td id=c12><nobr>${runner.club}</nobr><td><nobr></nobr><td id=c14>`;
+        html += `<tr><td id=c10><td id=c11><td id=c12><nobr>${actualClub || ''}</nobr><td><nobr></nobr><td id=c14>`;
         
         for (let i = 0; i < firstRowControls; i++) {
           const legTime = legTimes[i];

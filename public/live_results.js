@@ -1,4 +1,6 @@
         // Configuration
+        // Silence console in this standalone page
+        (function(){ try { var noop=function(){}; console.log=noop; console.info=noop; console.warn=noop; console.error=noop; } catch(e) {} })();
         const MEOS_API_BASE = 'http://localhost:2009';
         const PYTHON_SERVER = 'http://localhost:8000'; // Python server for XML files
         let REFRESH_INTERVAL = 15000; // 15 seconds (default, user can change)
@@ -1875,12 +1877,12 @@
         let screenWindows = [];
         
         function generateScreenFiles(classResults, numScreens) {
-            console.log('📺 [generateScreenFiles] Called with:', classResults.length, 'classes,', numScreens, 'screens');
-            console.log('📺 [generateScreenFiles] Class data:', JSON.stringify(classResults, null, 2));
+            console.log('[generateScreenFiles] Called with:', classResults.length, 'classes,', numScreens, 'screens');
+            console.log('[generateScreenFiles] Class data:', JSON.stringify(classResults, null, 2));
             
             // First, optimize class distribution across ALL screens
             const optimizedScreenSections = optimizeGlobalDistribution(classResults, numScreens);
-            console.log('📺 [generateScreenFiles] Optimized sections:', optimizedScreenSections.length);
+            console.log('[generateScreenFiles] Optimized sections:', optimizedScreenSections.length);
             
             // Close any existing screen windows that are beyond our new count
             for (let i = numScreens; i < screenWindows.length; i++) {
@@ -1897,14 +1899,14 @@
                 // Check if window exists and is still open
                 if (screenWindows[screenIndex] && !screenWindows[screenIndex].closed) {
                     // Update existing window content without closing/reopening
-                    console.log(`🔄 Updating screen ${screenNumber} content`);
+                    console.log(`[update] Screen ${screenNumber} content`);
                     try {
                         screenWindows[screenIndex].document.open();
                         screenWindows[screenIndex].document.write(html);
                         screenWindows[screenIndex].document.close();
-                        console.log(`✅ Screen ${screenNumber} updated successfully`);
+                        console.log(`Screen ${screenNumber} updated successfully`);
                     } catch (error) {
-                        console.error(`❌ Error updating screen ${screenNumber}:`, error);
+                        console.error(`Error updating screen ${screenNumber}:`, error);
                         // If update fails, try reopening
                         screenWindows[screenIndex] = null;
                     }
@@ -1913,18 +1915,18 @@
                 // Open new window if needed
                 if (!screenWindows[screenIndex] || screenWindows[screenIndex].closed) {
                     try {
-                        console.log(`🎆 Opening screen ${screenNumber} with fresh content`);
+                        console.log(`Opening screen ${screenNumber} with fresh content`);
                         screenWindows[screenIndex] = window.open('', `screen_${screenNumber}`, 'width=1200,height=800');
                         if (screenWindows[screenIndex]) {
                             screenWindows[screenIndex].document.open();
                             screenWindows[screenIndex].document.write(html);
                             screenWindows[screenIndex].document.close();
-                            console.log(`✅ Screen ${screenNumber} opened successfully`);
+                            console.log(`Screen ${screenNumber} opened successfully`);
                         } else {
-                            console.error(`❌ Failed to open screen ${screenNumber} - popup blocked?`);
+                            console.error(`Failed to open screen ${screenNumber} - popup blocked?`);
                         }
                     } catch (error) {
-                        console.error(`❌ Error opening screen ${screenNumber}:`, error);
+                        console.error(`Error opening screen ${screenNumber}:`, error);
                     }
                 }
             });
@@ -1982,6 +1984,29 @@
         function generateScreenHTML(classResults, screenNumber, totalScreens) {
             // Find optimal column count by testing what fits best
             const { optimalColumns, columnSections, fontSizes } = findOptimalLayout(classResults);
+
+            // Readability thresholds for outdoor TV/monitor viewing (in pixels)
+            const READABILITY = {
+                tableCell: 18,
+                runnerName: 20,
+                tableHeader: 16,
+                classTitle: 20,
+                position: 18,
+                padding: 4,
+                headerPadding: 4
+            };
+
+            const needsScroll = fontSizes.tableCell < READABILITY.tableCell;
+            const applied = { ...fontSizes };
+            if (needsScroll) {
+                applied.tableCell = Math.max(applied.tableCell, READABILITY.tableCell);
+                applied.runnerName = Math.max(applied.runnerName, READABILITY.runnerName);
+                applied.tableHeader = Math.max(applied.tableHeader, READABILITY.tableHeader);
+                applied.classTitle = Math.max(applied.classTitle, READABILITY.classTitle);
+                applied.position = Math.max(applied.position, READABILITY.position);
+                applied.padding = Math.max(applied.padding, READABILITY.padding);
+                applied.headerPadding = Math.max(applied.headerPadding, READABILITY.headerPadding);
+            }
             
             return `<!DOCTYPE html>
 <html lang="en">
@@ -1990,51 +2015,55 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Results Screen ${screenNumber} of ${totalScreens}</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
             font-family: Arial, sans-serif;
-            font-weight: normal;
+            font-weight: 600; /* slightly bolder for distance readability */
             background: #ffffff;
             min-height: 100vh;
             padding: 5px;
-            overflow-x: hidden;
+            overflow: hidden; /* hide when scrolling */
         }
         
         .screen-header {
             background: #000;
             color: #FFD700;
-            padding: 3px 10px;
-            font-size: 14px;
-            font-weight: bold;
+            padding: 4px 10px;
+            font-size: 16px;
+            font-weight: 800;
             text-align: center;
-            margin-bottom: 3px;
+            margin-bottom: 4px;
             border: 1px solid #FFD700;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Viewport that constrains the scrollable content */
+        .scroll-viewport {
+            position: relative;
+            height: calc(100vh - 44px);
+            overflow: hidden;
+            width: 100%;
         }
         
         .columns-container {
             display: grid;
             grid-template-columns: repeat(${optimalColumns}, 1fr);
-            gap: 5px;
-            height: calc(100vh - 40px);
-            overflow: hidden;
+            gap: 6px;
+            transform: translateY(0);
+            will-change: transform;
         }
         
         .column {
             display: flex;
             flex-direction: column;
             min-height: 0;
-            overflow: hidden;
         }
         
         .class-card {
             background: white;
             border-radius: 2px;
-            margin-bottom: ${fontSizes.cardMargin}px;
+            margin-bottom: ${applied.cardMargin}px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             overflow: hidden;
             border: 1px solid #333;
@@ -2044,95 +2073,131 @@
         .class-header-compact {
             background: #333;
             color: white;
-            padding: ${fontSizes.headerPadding}px;
-            font-size: ${fontSizes.classTitle}px;
-            font-weight: bold;
+            padding: ${applied.headerPadding}px;
+            font-size: ${applied.classTitle}px;
+            font-weight: 800;
             border-bottom: 1px solid #FFD700;
             text-align: center;
         }
         
-        .results-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
+        .results-table { width: 100%; border-collapse: collapse; }
         
         .results-table th {
-            background: #333333;
-            color: white;
-            padding: ${fontSizes.padding}px;
+            background: #000; /* higher contrast outdoors */
+            color: #fff;
+            padding: ${applied.padding}px;
             text-align: left;
-            font-weight: bold;
-            font-size: ${fontSizes.tableHeader}px;
-            border-bottom: 1px solid #FFD700;
+            font-weight: 800;
+            font-size: ${applied.tableHeader}px;
+            border-bottom: 2px solid #FFD700;
         }
         
         .results-table td {
-            padding: ${fontSizes.padding}px;
+            padding: ${applied.padding}px;
             border-bottom: 1px solid #ddd;
-            font-size: ${fontSizes.tableCell}px;
-            font-weight: normal;
-            line-height: 1.4;
+            font-size: ${applied.tableCell}px;
+            font-weight: 600;
+            line-height: 1.5;
         }
         
-        .position {
-            font-weight: bold;
-            text-align: center;
-            font-size: ${fontSizes.position}px;
-        }
+        .position { font-weight: 900; text-align: center; font-size: ${applied.position}px; }
         
-        .gold-row {
-            background: #FFD700 !important; /* Gold */
-            border-left: 8px solid #B8860B !important; /* Dark gold */
-            font-weight: bold;
-        }
+        .gold-row { background: #FFD700 !important; border-left: 8px solid #B8860B !important; font-weight: 900; }
+        .silver-row { background: #C0C0C0 !important; border-left: 6px solid #808080 !important; }
+        .bronze-row { background: #CD7F32 !important; border-left: 6px solid #8B4513 !important; }
         
-        .silver-row {
-            background: #C0C0C0 !important; /* Silver */
-            border-left: 6px solid #808080 !important; /* Dark silver */
-        }
+        .runner-name { font-weight: 900; font-size: ${applied.runnerName}px; }
         
-        .bronze-row {
-            background: #CD7F32 !important; /* Bronze */
-            border-left: 6px solid #8B4513 !important; /* Dark bronze */
-        }
-        
-        .runner-name {
-            font-weight: bold;
-            font-size: ${fontSizes.runnerName}px;
-        }
-        
-        .time, .diff, .lost {
-            font-family: monospace;
-            text-align: right;
-            font-weight: normal;
-        }
-        
-        .club {
-            color: #666;
-            font-weight: normal;
-        }
+        .time, .diff, .lost { font-family: monospace; text-align: right; font-weight: 700; }
+        .club { color: #333; font-weight: 600; }
     </style>
 </head>
 <body>
     <div class="screen-header">
-        SCREEN ${screenNumber} OF ${totalScreens} | ${optimalColumns} COLS | ${classResults.reduce((sum, c) => sum + c.runners.length, 0)} RUNNERS | FONT: ${fontSizes.tableCell}px | LIVE | ${new Date().toLocaleTimeString()}
+        SCREEN ${screenNumber} OF ${totalScreens} | ${optimalColumns} COLS | ${classResults.reduce((sum, c) => sum + c.runners.length, 0)} RUNNERS | FONT: ${applied.tableCell}px${needsScroll ? ' | SCROLL' : ''} | LIVE | ${new Date().toLocaleTimeString()}
     </div>
-    
-    <div class="columns-container">
+
+    <div class="scroll-viewport">
+      <div class="columns-container">
         ${columnSections.map((column, index) => `
             <div class="column">
                 ${column.map(classResult => generateClassHTML(classResult)).join('')}
             </div>
         `).join('')}
+      </div>
     </div>
+
     <script>
-        // Embed class data for dynamic re-optimization
+        // Embed class data and readability for dynamic re-optimization + scroll
         const classData = ${JSON.stringify(classResults)};
         const screenNum = ${screenNumber};
         const totalScreens = ${totalScreens};
+        const READABILITY = ${JSON.stringify({
+                tableCell: 18,
+                runnerName: 20,
+                tableHeader: 16,
+                classTitle: 20,
+                position: 18,
+                padding: 4,
+                headerPadding: 4
+        })};
+        let baseScrollEnabled = ${needsScroll};
+
+        let rafId = null;
+        let pauseUntil = 0;
+        let scrollY = 0;
+        let direction = 1; // 1=down, -1=up
+
+        function startAutoScroll() {
+            const viewport = document.querySelector('.scroll-viewport');
+            const content = document.querySelector('.columns-container');
+            if (!viewport || !content) return;
+
+            const overflow = Math.max(0, content.scrollHeight - viewport.clientHeight);
+            if (overflow <= 0) return; // nothing to scroll
+
+            const targetCycleSeconds = 60; // full down or up in ~60s
+            const pxPerSec = Math.min(120, Math.max(10, overflow / targetCycleSeconds));
+            const pauseMs = 1800; // pause at ends
+
+            function step(ts) {
+                if (!step.lastTs) step.lastTs = ts;
+                const dt = (ts - step.lastTs) / 1000;
+                step.lastTs = ts;
+
+                if (ts < pauseUntil) {
+                    rafId = requestAnimationFrame(step);
+                    return;
+                }
+
+                scrollY += direction * pxPerSec * dt;
+                if (scrollY >= overflow) {
+                    scrollY = overflow;
+                    direction = -1;
+                    pauseUntil = ts + pauseMs;
+                } else if (scrollY <= 0) {
+                    scrollY = 0;
+                    direction = 1;
+                    pauseUntil = ts + pauseMs;
+                }
+                content.style.transform = 'translateY(' + (-scrollY) + 'px)';
+                rafId = requestAnimationFrame(step);
+            }
+
+            cancelAutoScroll();
+            rafId = requestAnimationFrame(step);
+        }
+
+        function cancelAutoScroll() {
+            const content = document.querySelector('.columns-container');
+            if (rafId) cancelAnimationFrame(rafId);
+            rafId = null;
+            if (content) content.style.transform = 'translateY(0)';
+        }
         
         function reoptimizeLayout() {
-            const availableHeight = window.innerHeight - 50;
+            const viewport = document.querySelector('.scroll-viewport');
+            const availableHeight = (viewport?.clientHeight || (window.innerHeight - 44));
             const availableWidth = window.innerWidth - 20; // Account for padding
             const minColumnWidth = 280; // Minimum width per column to avoid truncation
             let bestLayout = null;
@@ -2151,28 +2216,53 @@
             if (!bestLayout) {
                 bestLayout = { optimalColumns: 1, columnSections: [classData], fontSizes: { classTitle: 5, runnerName: 5, tableHeader: 5, tableCell: 5, position: 5, padding: 1, headerPadding: 1, cardMargin: 0 } };
             }
+
+            // If fonts are below readability, force minimum readable fonts and enable scroll
+            let fonts = bestLayout.fontSizes;
+            let scrollNeeded = baseScrollEnabled || (fonts.tableCell < READABILITY.tableCell);
+            if (scrollNeeded) {
+                fonts = {
+                    classTitle: Math.max(fonts.classTitle, READABILITY.classTitle),
+                    runnerName: Math.max(fonts.runnerName, READABILITY.runnerName),
+                    tableHeader: Math.max(fonts.tableHeader, READABILITY.tableHeader),
+                    tableCell: Math.max(fonts.tableCell, READABILITY.tableCell),
+                    position: Math.max(fonts.position, READABILITY.position),
+                    padding: Math.max(fonts.padding, READABILITY.padding),
+                    headerPadding: Math.max(fonts.headerPadding, READABILITY.headerPadding),
+                    cardMargin: bestLayout.fontSizes.cardMargin
+                };
+            }
             
             // Update grid columns
-            document.querySelector('.columns-container').style.gridTemplateColumns = \`repeat(\${bestLayout.optimalColumns}, 1fr)\`;
+            const container = document.querySelector('.columns-container');
+            container.style.gridTemplateColumns = 'repeat(' + bestLayout.optimalColumns + ', 1fr)';
             
             // Update dynamic styles
             let styleEl = document.getElementById('dynamic-styles');
-            if (!styleEl) {
-                styleEl = document.createElement('style');
-                styleEl.id = 'dynamic-styles';
-                document.head.appendChild(styleEl);
-            }
-            styleEl.textContent = \`
-                .class-header-compact { font-size: \${bestLayout.fontSizes.classTitle}px !important; padding: \${bestLayout.fontSizes.headerPadding}px !important; }
-                .results-table th { font-size: \${bestLayout.fontSizes.tableHeader}px !important; padding: \${bestLayout.fontSizes.padding}px !important; }
-                .results-table td { font-size: \${bestLayout.fontSizes.tableCell}px !important; padding: \${bestLayout.fontSizes.padding}px !important; }
-                .position { font-size: \${bestLayout.fontSizes.position}px !important; }
-                .runner-name { font-size: \${bestLayout.fontSizes.runnerName}px !important; }
-                .class-card { margin-bottom: \${bestLayout.fontSizes.cardMargin}px !important; }
-            \`;
+            if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'dynamic-styles'; document.head.appendChild(styleEl); }
+            styleEl.textContent = `
+                .class-header-compact { font-size: ${fonts.classTitle}px !important; padding: ${fonts.headerPadding}px !important; }
+                .results-table th { font-size: ${fonts.tableHeader}px !important; padding: ${fonts.padding}px !important; }
+                .results-table td { font-size: ${fonts.tableCell}px !important; padding: ${fonts.padding}px !important; }
+                .position { font-size: ${fonts.position}px !important; }
+                .runner-name { font-size: ${fonts.runnerName}px !important; }
+                .class-card { margin-bottom: ${fonts.cardMargin}px !important; }
+            `;
             
-            // Update header
-            document.querySelector('.screen-header').textContent = \`SCREEN \${screenNum} OF \${totalScreens} | \${bestLayout.optimalColumns} COLS | \${classData.reduce((s,c) => s + c.runners.length, 0)} RUNNERS | FONT: \${bestLayout.fontSizes.tableCell}px | LIVE | \${new Date().toLocaleTimeString()}\`;
+            // Update header (show SCROLL tag if enabled)
+            const header = document.querySelector('.screen-header');
+            const totalRunners = classData.reduce((s,c) => s + c.runners.length, 0);
+            header.textContent = `SCREEN ${screenNum} OF ${totalScreens} | ${bestLayout.optimalColumns} COLS | ${totalRunners} RUNNERS | FONT: ${fonts.tableCell}px${scrollNeeded ? ' | SCROLL' : ''} | LIVE | ${new Date().toLocaleTimeString()}`;
+
+            // Decide to scroll based on overflow or scrollNeeded
+            cancelAutoScroll();
+            if (scrollNeeded) {
+                startAutoScroll();
+            } else {
+                // If content still overflows due to dynamic updates, scroll anyway
+                const overflow = Math.max(0, container.scrollHeight - (viewport?.clientHeight || 0));
+                if (overflow > 0) startAutoScroll();
+            }
         }
         
         function distributeToColumns(classResults, numColumns) {
@@ -2196,27 +2286,25 @@
             
             for (let scale = maxTestScale; scale >= 0.1; scale -= 0.05) {
                 const fontSize = {
-                    classTitle: Math.max(5, Math.floor(9 * scale)), // Reduced from 12 to 9
+                    classTitle: Math.max(5, Math.floor(9 * scale)),
                     runnerName: Math.max(5, Math.floor(10 * scale)),
-                    tableHeader: Math.max(5, Math.floor(7 * scale)), // Reduced from 8 to 7
+                    tableHeader: Math.max(5, Math.floor(7 * scale)),
                     tableCell: Math.max(5, Math.floor(7 * scale)),
                     position: Math.max(5, Math.floor(9 * scale)),
-                    padding: Math.max(1, Math.floor(2 * scale)), // Reduced from 3 to 2
-                    headerPadding: Math.max(1, Math.floor(2 * scale)), // Reduced from 3 to 2
-                    cardMargin: Math.max(0, Math.floor(1 * scale)) // Reduced from 2 to 1
+                    padding: Math.max(1, Math.floor(2 * scale)),
+                    headerPadding: Math.max(1, Math.floor(2 * scale)),
+                    cardMargin: Math.max(0, Math.floor(1 * scale))
                 };
                 const estimatedHeight = columnSections.reduce((maxHeight, column) => {
                     const columnHeight = column.reduce((sum, classResult) => {
                         const headerHeight = Math.ceil((fontSize.classTitle * 1.4) + (fontSize.headerPadding * 2) + 4);
                         const tableHeaderHeight = Math.ceil((fontSize.tableHeader * 1.4) + (fontSize.padding * 2) + 2);
-                        // Account for line-height (1.4), padding, border, and extra spacing
                         const runnerRowsHeight = classResult.runners.length * Math.ceil(fontSize.tableCell * 1.5 + (fontSize.padding * 2) + 2);
-                        const spacing = fontSize.cardMargin + 5; // Add extra spacing
+                        const spacing = fontSize.cardMargin + 5;
                         return sum + headerHeight + tableHeaderHeight + runnerRowsHeight + spacing;
                     }, 0);
                     return Math.max(maxHeight, columnHeight);
                 }, 0);
-                // Add 20% safety margin to prevent clipping
                 if (estimatedHeight * 1.2 <= availableHeight && (!bestFontSize || fontSize.tableCell > bestFontSize.tableCell)) {
                     bestFontSize = fontSize;
                 }
@@ -2233,8 +2321,9 @@
             clearTimeout(resizeTimeout);
             resizeTimeout = setTimeout(reoptimizeLayout, 250);
         });
-        
-        console.log('Screen ' + screenNum + ' initialized with ' + classData.length + ' classes');
+
+        // Initial optimization and potential scroll
+        reoptimizeLayout();
     </script>
 </body>
 </html>`;

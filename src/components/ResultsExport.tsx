@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
-import { Card, Button, Upload, Space, Alert, Typography, Progress, message } from 'antd';
-import { UploadOutlined, FileTextOutlined, CheckCircleOutlined, GlobalOutlined } from '@ant-design/icons';
+import { Card, Button, Upload, Space, Alert, Typography, Progress, Radio, Table, Modal, Tag, App } from 'antd';
+import { UploadOutlined, FileTextOutlined, CheckCircleOutlined, GlobalOutlined, WarningOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 import { resultsExportService } from '../services/resultsExportService';
+import { meosResultsValidationService, type ValidationBatch } from '../services/meosResultsValidationService';
+import { runnerValidationService } from '../services/runnerValidationService';
+import ResultsReviewAndFix from './ResultsReviewAndFix';
+import ResultsXmlReviewAndFix from './ResultsXmlReviewAndFix';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -13,7 +17,11 @@ interface GenerationResult {
   error?: string;
 }
 
+type EventSource = 'MeOS' | 'OE12' | 'unknown';
+type ValidationStep = 'source' | 'validate' | 'review' | 'generate';
+
 const ResultsExport: React.FC = () => {
+  const { message } = App.useApp();
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GenerationResult | null>(null);
@@ -21,6 +29,14 @@ const ResultsExport: React.FC = () => {
   const [fileContent, setFileContent] = useState<string>('');
   const [fileName, setFileName] = useState<string>('');
   const [filePath, setFilePath] = useState<string>('');
+  const [eventSource, setEventSource] = useState<EventSource>('unknown');
+  const [currentStep, setCurrentStep] = useState<ValidationStep>('source');
+  const [validationBatch, setValidationBatch] = useState<ValidationBatch | null>(null);
+  const [showValidationReport, setShowValidationReport] = useState(false);
+  const [correctedXML, setCorrectedXML] = useState<string>('');
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [xmlReviewOpen, setXmlReviewOpen] = useState(false);
+  const [xmlValidationReady, setXmlValidationReady] = useState(false);
 
   const handleBrowseFile = async () => {
     if (!window.electronAPI) {
@@ -68,6 +84,10 @@ const ResultsExport: React.FC = () => {
           
           setEventInfo({ name: eventName, date: eventDate });
           setResult(null);
+          setCurrentStep('source');
+          setEventSource('unknown');
+          setValidationBatch(null);
+          setCorrectedXML('');
           
           message.success(`File loaded: ${selectedFileName}`);
         } else {
@@ -108,6 +128,10 @@ const ResultsExport: React.FC = () => {
       const eventDate = xmlDoc.querySelector('Event > StartTime > Date')?.textContent?.trim() || new Date().toISOString().split('T')[0];
       
       setEventInfo({ name: eventName, date: eventDate });
+      setCurrentStep('source');
+      setEventSource('unknown');
+      setValidationBatch(null);
+      setCorrectedXML('');
       
       message.success(`File loaded: ${file.name}`);
     } catch (error) {
@@ -120,6 +144,93 @@ const ResultsExport: React.FC = () => {
     return false; // Prevent auto upload
   };
 
+  const handleSelectEventSource = async (source: EventSource) => {
+    setEventSource(source);
+    setCurrentStep('validate');
+    setLoading(true);
+
+    try {
+      if (source === 'MeOS') {
+        // Validate by fetching competitors directly from MeOS API
+        const validationBatch = await meosResultsValidationService.validateFromMeOSAPI(
+          eventInfo?.name || 'Event',
+          eventInfo?.date || new Date().toISOString().split('T')[0]
+        );
+
+        setValidationBatch(validationBatch);
+        setCurrentStep('review');
+        setReviewOpen(true);
+        message.success(`Validated ${validationBatch.runners.length} runners from MeOS (live)`);
+      } else if (source === 'unknown') {
+        setCurrentStep('generate');
+      } else if (source === 'OE12') {
+        if (!fileContent) {
+          message.warning('Please select an OE12 XML file first');
+          setCurrentStep('source');
+          return;
+        }
+        // For OE12, parse and validate against club database
+        const classResults = resultsExportService.parseOE12XML(fileContent);
+        
+        // Extract runners from class results
+        const runners = classResults.flatMap(cr => 
+          cr.runners.map(r => ({
+            firstName: r.name.split(' ')[0],
+            lastName: r.name.split(' ').slice(1).join(' '),
+            club: r.club,
+            cardNumber: r.runTime
+          }))
+        );
+
+        // Validate each runner
+        const validationResults = runnerValidationService.validateRunners(
+          runners.map((r, idx) => ({
+            ...r,
+            birthYear: undefined,
+            sex: undefined,
+            phone: undefined
+          }))
+        );
+
+        const summary = runnerValidationService.getValidationSummary(
+          validationResults.map(r => ({
+            valid: r.valid,
+            diffs: r.diffs,
+            suggestedCorrections: r.suggestedCorrections
+          }))
+        );
+
+        message.success(`Validated ${summary.totalRunners} runners (${summary.invalidRunners} need corrections)`);
+        setCurrentStep('review');
+      }
+    } catch (error) {
+      console.error('Validation error:', error);
+      message.error('Failed to validate runners');
+      setCurrentStep('source');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApplyCorrections = async (autoFixLevel: 'none' | 'info' | 'warning' | 'all' = 'all') => {
+    if (!validationBatch || !fileContent) return;
+
+    try {
+      const corrected = meosResultsValidationService.applyCorrectionToXML(
+        fileContent,
+        validationBatch,
+        autoFixLevel
+      );
+      
+      setCorrectedXML(corrected);
+      setCurrentStep('generate');
+      message.success('Corrections applied. Ready to generate results.');
+    } catch (error) {
+      console.error('Correction error:', error);
+      message.error('Failed to apply corrections');
+    }
+  };
+
   const handleGenerateHTML = async () => {
     if (fileList.length === 0 || !fileContent) {
       message.warning('Please select an XML file first');
@@ -130,8 +241,11 @@ const ResultsExport: React.FC = () => {
     setResult(null);
 
     try {
+      // Use corrected XML if available, otherwise use original
+      const xmlToUse = correctedXML || fileContent;
+      
       // Parse XML using stored content
-      const classResults = resultsExportService.parseOE12XML(fileContent);
+      const classResults = resultsExportService.parseOE12XML(xmlToUse);
 
       if (!eventInfo) {
         throw new Error('Event information not loaded');
@@ -239,8 +353,16 @@ const ResultsExport: React.FC = () => {
             </Paragraph>
           </div>
 
+          {/* Step 1: Quick Clean MeOS (optional) */}
+          <Card type="inner" title="1. Quick Clean MeOS (optional)">
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Paragraph type="secondary">Fix live MeOS entries using your Runner Database before exporting. This does not modify any XML.</Paragraph>
+              <Button type="primary" onClick={() => handleSelectEventSource('MeOS')} disabled={loading}>Review & Fix in MeOS</Button>
+            </Space>
+          </Card>
+
           {/* File Upload */}
-          <Card type="inner" title="1. Select OE12 XML Results File">
+          <Card type="inner" title="2. Select Results XML File">
             <Space direction="vertical" style={{ width: '100%' }}>
               <Button 
                 icon={<UploadOutlined />} 
@@ -265,6 +387,10 @@ const ResultsExport: React.FC = () => {
                       setFileContent('');
                       setFileName('');
                       setFilePath('');
+                      setEventSource('unknown');
+                      setCurrentStep('source');
+                      setValidationBatch(null);
+                      setCorrectedXML('');
                     }}
                   >
                     Clear
@@ -292,8 +418,176 @@ const ResultsExport: React.FC = () => {
             )}
           </Card>
 
+          {/* Event Source Selection */}
+{false && (
+            <Card type="inner" title="2. Event Source" style={{ backgroundColor: '#f0f5ff' }}>
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Typography.Text>
+                  Was this event run in <strong>MeOS</strong> or <strong>OE12</strong>?
+                </Typography.Text>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 16 }}>
+                  This determines how runner data is validated and corrected before exporting results.
+                </Typography.Paragraph>
+
+                <Radio.Group
+                  onChange={(e) => handleSelectEventSource(e.target.value as EventSource)}
+                  style={{ marginBottom: 16 }}
+                  value={eventSource}
+                >
+                  <Space direction="vertical">
+                    <Radio value="MeOS">
+                      <Space direction="vertical" size={0}>
+                        <span><strong>Clean MeOS (recommended)</strong></span>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          Fix live MeOS entries using Runner DB before exporting (no XML edits)
+                        </Typography.Text>
+                      </Space>
+                    </Radio>
+                    <Radio value="OE12">
+                      <Space direction="vertical" size={0}>
+                        <span><strong>Clean XML only (OE12)</strong></span>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          Validate this OE12 XML against Runner DB (MeOS unchanged)
+                        </Typography.Text>
+                      </Space>
+                    </Radio>
+                    <Radio value="unknown">
+                      <Space direction="vertical" size={0}>
+                        <span><strong>Skip validation</strong></span>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          Generate HTML as-is without any corrections
+                        </Typography.Text>
+                      </Space>
+                    </Radio>
+                  </Space>
+                </Radio.Group>
+
+                {eventSource === 'MeOS' && (
+                  <div>
+                    <Button type="primary" onClick={() => handleSelectEventSource('MeOS')}>
+                      Review & Fix in MeOS (Runner DB)
+                    </Button>
+                  </div>
+                )}
+              </Space>
+            </Card>
+          )}
+
+          {/* Validation Review */}
+          {currentStep === 'review' && validationBatch && (
+            <Card type="inner" title="3. Validation Review" style={{ backgroundColor: '#fff7e6' }}>
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Alert
+                  message="Runner Data Validation"
+                  description={`Reviewing ${validationBatch.runners.length} runners for corrections`}
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+
+                <div style={{ marginBottom: 16 }}>
+                  <Button
+                    type="link"
+                    onClick={() => setShowValidationReport(true)}
+                    icon={<InfoCircleOutlined />}
+                  >
+                    View Detailed Validation Report
+                  </Button>
+                </div>
+
+                <div style={{ background: '#f5f5f5', padding: 12, borderRadius: 4, marginBottom: 16 }}>
+                  <Typography.Text strong>Validation Summary:</Typography.Text>
+                  <br />
+                  <Typography.Text>
+                    {runnerValidationService.getValidationSummary(
+                      validationBatch.validationResults.map(r => ({
+                        valid: r.valid,
+                        diffs: r.diffs,
+                        suggestedCorrections: r.suggestedCorrections,
+                        matchedRunner: r.matchedRunner
+                      }))
+                    ).invalidRunners} runners need corrections
+                  </Typography.Text>
+                </div>
+
+                {eventSource === 'MeOS' && (
+                  <Space>
+                    <Button type="primary" onClick={() => setReviewOpen(true)}>
+                      Open Review & Fix (MeOS)
+                    </Button>
+                    <Button onClick={() => setCurrentStep('generate')}>Skip Corrections</Button>
+                  </Space>
+                )}
+
+                {eventSource !== 'MeOS' && (
+                  <>
+                    <Typography.Text type="secondary">Select correction level:</Typography.Text>
+                    <Space wrap>
+                      <Button onClick={() => handleApplyCorrections('all')} type="primary">Apply All Corrections</Button>
+                      <Button onClick={() => handleApplyCorrections('warning')}>Apply Warnings Only</Button>
+                      <Button onClick={() => handleApplyCorrections('info')}>Apply Info Only</Button>
+                      <Button onClick={() => handleApplyCorrections('none')}>Skip Corrections</Button>
+                    </Space>
+                  </>
+                )}
+              </Space>
+            </Card>
+          )}
+
+          {/* Validation Report Modal */}
+          <Modal
+            title="Validation Report"
+            open={showValidationReport && !!validationBatch}
+            onCancel={() => setShowValidationReport(false)}
+            width={900}
+            footer={<Button onClick={() => setShowValidationReport(false)}>Close</Button>}
+          >
+            <div style={{ maxHeight: 600, overflowY: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 11 }}>
+              {validationBatch ? meosResultsValidationService.generateValidationReport(validationBatch) : ''}
+            </div>
+          </Modal>
+
+          {/* Review & Fix Modal (MeOS) */}
+          {eventSource === 'MeOS' && validationBatch && (
+            <ResultsReviewAndFix
+              open={reviewOpen}
+              onClose={() => setReviewOpen(false)}
+              runners={validationBatch.runners}
+            />
+          )}
+
+          {/* Review & Fix Modal (XML) */}
+          {xmlReviewOpen && (
+            <ResultsXmlReviewAndFix
+              open={xmlReviewOpen}
+              onClose={() => setXmlReviewOpen(false)}
+              xmlContent={fileContent}
+              eventName={eventInfo?.name || 'Event'}
+              eventDate={eventInfo?.date || new Date().toISOString().split('T')[0]}
+              savePath={filePath || null}
+              onApplyXml={(corrected, saved) => { setCorrectedXML(corrected); if (saved) message.success(`Saved corrected XML: ${saved}`); setCurrentStep('generate'); }}
+              onDbUpdated={(stats) => { message.success(`Runner DB updated (${stats.updated} updated, ${stats.created} new)`); }}
+            />
+          )}
+
+          {/* XML Review Step */}
+          {fileContent && (
+            <Card type="inner" title="3. Review XML vs Runner Database">
+              <Space direction="vertical" style={{ width: '100%' }}>
+                <Typography.Paragraph type="secondary">Analyze the imported XML against your Runner Database, apply fixes to the XML, and optionally update the database.</Typography.Paragraph>
+                <Space>
+                  <Button type="primary" onClick={() => setXmlReviewOpen(true)} disabled={!eventInfo}>Open Review & Fix (XML)</Button>
+                </Space>
+              </Space>
+            </Card>
+          )}
+
           {/* Generate Button */}
-          <Card type="inner" title="2. Generate HTML Results">
+          <Card
+            type="inner"
+            title="4. Generate HTML Results"
+            style={currentStep === 'generate' ? { backgroundColor: '#f6ffed', borderColor: '#b7eb8f' } : {}}
+          >
             <Space direction="vertical" style={{ width: '100%' }}>
               <Paragraph type="secondary">
                 Two HTML files will be generated in the same directory as the XML file:
@@ -366,6 +660,10 @@ const ResultsExport: React.FC = () => {
                         setFileContent('');
                         setFileName('');
                         setFilePath('');
+                        setEventSource('unknown');
+                        setCurrentStep('source');
+                        setValidationBatch(null);
+                        setCorrectedXML('');
                       }}
                     >
                       Generate Another

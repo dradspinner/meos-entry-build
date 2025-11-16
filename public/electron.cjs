@@ -6,6 +6,16 @@ const os = require('os');
 const MIPServer = require('./mip-server.cjs');
 const SportIdentReader = require('./sportident-reader.cjs');
 
+// Silence console noise in dev and prod (can be toggled with env var)
+const SUPPRESS_CONSOLE = process.env.MEOS_QUIET_LOGS !== '0';
+if (SUPPRESS_CONSOLE) {
+  const noop = () => {};
+  try { console.log = noop; } catch {}
+  try { console.info = noop; } catch {}
+  try { console.warn = noop; } catch {}
+  try { console.error = noop; } catch {}
+}
+
 // Fix cache permission issues on Windows with OneDrive
 // Set app paths to local temp directory instead of OneDrive-synced locations
 const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
@@ -74,7 +84,7 @@ function createWindow() {
       experimentalFeatures: true, // Enable experimental web features
       preload: path.join(__dirname, 'preload.cjs')
     },
-    icon: path.join(__dirname, 'icon.png'),
+    icon: path.join(__dirname, process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     show: false, // Don't show until ready
     titleBarStyle: 'default'
   });
@@ -338,7 +348,7 @@ function runMySQLNetworkSetup() {
     const { spawn } = require('child_process');
     
     // Use Start-Process with -Verb RunAs to run as admin
-    const psCommand = `Start-Process powershell -Verb RunAs -ArgumentList "-ExecutionPolicy Bypass -File \"${setupScriptPath}\"" -Wait`;
+    const psCommand = `Start-Process powershell -Verb RunAs -ArgumentList '-ExecutionPolicy','Bypass','-File','"${setupScriptPath}"' -Wait`;
     
     const setupProcess = spawn('powershell', [
       '-ExecutionPolicy', 'Bypass',
@@ -443,7 +453,7 @@ function createLiveResultsWindow() {
       webSecurity: false,
       preload: path.join(__dirname, 'preload.cjs')
     },
-    icon: path.join(__dirname, 'icon.png'),
+    icon: path.join(__dirname, process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     title: 'Live Results Display',
     show: false
   });
@@ -490,7 +500,7 @@ function createDatabaseManagerWindow() {
       webSecurity: false,
       preload: path.join(__dirname, 'preload.cjs')
     },
-    icon: path.join(__dirname, 'icon.png'),
+    icon: path.join(__dirname, process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     show: false,
     title: 'Runner Database Manager'
   });

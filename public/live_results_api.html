@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Results - DVOA Event</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            font-weight: normal;
+            background: #ffffff;
+            min-height: 100vh;
+            padding: 10px;
+            overflow-x: hidden;
+        }
+        
+        .mini-header {
+            background: #000;
+            color: white;
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid #FFD700;
+            margin-bottom: 5px;
+        }
+        
+        .divider {
+            color: #FFD700;
+            font-weight: bold;
+        }
+        
+        .mini-header select {
+            background: #333;
+            color: white;
+            border: 1px solid #FFD700;
+            padding: 2px 4px;
+            font-size: 11px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="mini-header">
+        <span id="eventTitle">Live Results</span>
+        <span class="divider">•</span>
+        <span id="eventDate">Loading...</span>
+        <span class="divider">•</span>
+        <span id="lastUpdate">Checking API...</span>
+        <span class="divider">•</span>
+        <label for="refreshInterval" style="font-size: 11px;">Refresh:</label>
+        <select id="refreshInterval" style="font-size: 11px;">
+            <option value="10">10s</option>
+            <option value="15" selected>15s</option>
+            <option value="20">20s</option>
+            <option value="30">30s</option>
+            <option value="60">60s</option>
+        </select>
+        <span class="divider">•</span>
+        <label for="screenCount">Windows:</label>
+        <select id="screenCount">
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+        </select>
+        <span class="divider">•</span>
+        <label for="maxColumns">Max Columns:</label>
+        <select id="maxColumns">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6" selected>6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+        </select>
+        <span class="divider">•</span>
+        <span style="font-size: 11px; opacity: 0.7; color: #00AA00;" id="dataSource">📡 MeOS API</span>
+    </div>
+
+    <div id="resultsContainer">
+        <div class="loading">
+            <div>Loading results...</div>
+        </div>
+    </div>
+
+    <script src="live_results_api.js"></script>
+</body>
+</html>

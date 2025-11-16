@@ -1,4 +1,6 @@
 // Configuration
+// Silence console noise for production display
+(function(){ try { var noop=function(){}; console.log=noop; console.info=noop; console.warn=noop; console.error=noop; } catch(e) {} })();
 const MEOS_API_BASE = 'http://localhost:2009';
 let REFRESH_INTERVAL = 15000; // 15 seconds (default, user can change)
 let refreshIntervalId = null;
@@ -11,8 +13,20 @@ let finishTimestamps = {}; // Track when runners first appeared with finish time
 let classMap = {}; // ID -> Name mapping
 let courseLengths = {}; // Class name -> course length
 
+// Refresh coordination
+let userRefreshMs = REFRESH_INTERVAL;      // user-selected
+let cycleMinMs = 0;                        // min cycle time reported by screens
+let effectiveRefreshMs = Math.max(userRefreshMs, cycleMinMs);
+let lastFetchTs = 0;
+
+// Rapid reoptimization when data changes
+let lastFingerprint = '';
+let quickTimer = null;
+let quickUntil = 0;
+
 // Configuration state
 let screenCount = 1;
+let maxColumns = 6; // User-configurable maximum columns
 
 // XML Parsing Helper
 function parseXmlResponse(xmlString) {
@@ -70,6 +84,27 @@ function xmlToObject(node) {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+    // Accept cycle messages from result windows to align refresh timing
+    window.addEventListener('message', (ev) => {
+        const data = ev.data || {};
+        if (data.type === 'lr_cycle') {
+            const newCycle = Math.max(0, parseInt(data.cycleMs || 0));
+            if (!isNaN(newCycle)) {
+                if (newCycle > cycleMinMs) {
+                    cycleMinMs = newCycle;
+                    // Don't restart refresh - let it sync naturally
+                }
+            }
+            // Trigger refresh at cycle boundary if enough time has passed
+            const minRefreshGap = Math.max(effectiveRefreshMs, newCycle, 30000); // At least 30s between refreshes
+            if (Date.now() - lastFetchTs >= minRefreshGap) {
+                console.log('[Refresh] Cycle boundary - refreshing data (last refresh was ' + Math.round((Date.now() - lastFetchTs)/1000) + 's ago)');
+                fetchResults().catch(()=>{});
+            } else {
+                console.log('[Refresh] Cycle boundary - skipping refresh (last refresh was only ' + Math.round((Date.now() - lastFetchTs)/1000) + 's ago)');
+            }
+        }
+    });
     loadEventMeta();
     loadConfiguration();
     setupEventListeners();
@@ -106,12 +141,44 @@ function startAutoRefresh() {
     if (refreshIntervalId) {
         clearInterval(refreshIntervalId);
     }
+    // Only use timer-based refresh if there's no scrolling (cycleMinMs will be 0)
+    // When scrolling is active, cycle messages handle refreshes
+    if (cycleMinMs === 0) {
+        console.log('[Refresh] Starting timer-based refresh (no scroll active)');
+        refreshIntervalId = setInterval(async () => {
+            if (apiStatus === 'online') {
+                if (Date.now() - lastFetchTs >= effectiveRefreshMs - 50) {
+                    console.log('[Refresh] Timer-based refresh triggered');
+                    await fetchResults();
+                }
+            }
+        }, Math.max(1000, effectiveRefreshMs));
+    } else {
+        console.log('[Refresh] Scroll active - using cycle-based refresh instead of timer');
+    }
+}
 
-    refreshIntervalId = setInterval(async () => {
-        if (apiStatus === 'online') {
-            await fetchResults();
-        }
-    }, REFRESH_INTERVAL);
+function scheduleQuickBurst(seconds = 15) {
+    quickUntil = Date.now() + seconds * 1000;
+    if (!quickTimer) {
+        quickTimer = setTimeout(quickTick, 2000);
+    }
+}
+
+async function quickTick() {
+    quickTimer = null;
+    if (Date.now() >= quickUntil) return;
+    if (!isRefreshing && apiStatus === 'online' && (Date.now() - lastFetchTs >= effectiveRefreshMs - 50)) {
+        try { await fetchResults(); } catch {}
+    }
+    quickTimer = setTimeout(quickTick, 2000);
+}
+
+function fingerprint(results) {
+    try {
+        if (!Array.isArray(results)) return '';
+        return results.map(c => `${c.className}:${c.runners?.length || 0}`).join('|');
+    } catch { return ''; }
 }
 
 function loadConfiguration() {
@@ -119,7 +186,11 @@ function loadConfiguration() {
     if (savedConfig) {
         const config = JSON.parse(savedConfig);
         screenCount = config.screenCount || 1;
+        maxColumns = config.maxColumns || 6;
         document.getElementById('screenCount').value = screenCount;
+        if (document.getElementById('maxColumns')) {
+            document.getElementById('maxColumns').value = maxColumns;
+        }
 
         if (config.refreshInterval) {
             REFRESH_INTERVAL = config.refreshInterval * 1000;
@@ -131,6 +202,7 @@ function loadConfiguration() {
 function saveConfiguration() {
     const config = {
         screenCount,
+        maxColumns,
         refreshInterval: REFRESH_INTERVAL / 1000
     };
     localStorage.setItem('liveResults_config', JSON.stringify(config));
@@ -145,9 +217,18 @@ function setupEventListeners() {
 
     document.getElementById('refreshInterval').addEventListener('change', (e) => {
         REFRESH_INTERVAL = parseInt(e.target.value) * 1000;
+        userRefreshMs = REFRESH_INTERVAL;
         saveConfiguration();
         startAutoRefresh();
     });
+
+    if (document.getElementById('maxColumns')) {
+        document.getElementById('maxColumns').addEventListener('change', (e) => {
+            maxColumns = parseInt(e.target.value);
+            saveConfiguration();
+            if (currentResults.length > 0) displayResults(currentResults);
+        });
+    }
 }
 
 function loadEventMeta() {
@@ -303,9 +384,17 @@ async function fetchResults() {
             });
         });
 
+        // Detect data change to trigger rapid reoptimization bursts
+        const fp = fingerprint(classResults);
+        if (fp !== lastFingerprint) {
+            lastFingerprint = fp;
+            scheduleQuickBurst(20); // temporarily poll faster for ~20s while activity is high
+        }
+
         currentResults = classResults;
         displayResults(classResults);
         updateLastUpdateTime();
+        lastFetchTs = Date.now();
 
         apiStatus = 'online';
         updateStatusDisplay();
@@ -523,26 +612,41 @@ async function parseResultsWithAnalysis(resultsData, competitors = []) {
     return classResults;
 }
 
-async function enrichWithSplitAnalysis(resultsByClass) {
+async function enrichWithSplitAnalysis(resultsByClass, limitPerClass = 20, concurrency = 6) {
+    // Concurrency-limited queue executor
+    async function runLimited(tasks, limit) {
+        const results = new Array(tasks.length);
+        let next = 0;
+        const workers = new Array(Math.min(limit, tasks.length)).fill(0).map(async () => {
+            while (next < tasks.length) {
+                const cur = next++;
+                try {
+                    results[cur] = await tasks[cur]();
+                } catch (e) {
+                    results[cur] = null;
+                }
+            }
+        });
+        await Promise.all(workers);
+        return results;
+    }
+
     for (const className in resultsByClass) {
         const classResult = resultsByClass[className];
-        const finishedRunners = classResult.runners.filter(r => r.status === 'finished');
+        const finishedRunners = classResult.runners
+            .filter(r => r.status === 'finished')
+            .sort((a,b) => (a.position||9999) - (b.position||9999))
+            .slice(0, limitPerClass); // limit per class for performance
 
-        console.log(`🔍 Fetching split analysis for ${finishedRunners.length} runners in ${className}...`);
-
-        for (const runner of finishedRunners) {
-            if (!runner.competitorId) continue;
-
-            try {
-                const details = await lookupCompetitor(parseInt(runner.competitorId));
-
-                if (details && details.splits) {
-                    runner.timeLost = calculateTotalTimeLost(details.splits);
-                }
-            } catch (error) {
-                console.warn(`  ❌ Failed to get analysis for ${runner.fullName}:`, error);
+        const tasks = finishedRunners.map(runner => async () => {
+            if (!runner.competitorId) return null;
+            const details = await lookupCompetitor(parseInt(runner.competitorId));
+            if (details && details.splits) {
+                runner.timeLost = calculateTotalTimeLost(details.splits);
             }
-        }
+            return null;
+        });
+        await runLimited(tasks, concurrency);
     }
 }
 
@@ -665,8 +769,8 @@ function compareClassNames(a, b) {
 let screenWindows = [];
 
 function displayResults(classResults) {
-    console.log('Displaying results:', classResults);
-    const container = document.getElementById('resultsContainer');
+        console.log('Displaying results:', classResults);
+        const container = document.getElementById('resultsContainer');
 
     if (!classResults || classResults.length === 0) {
         container.innerHTML = `
@@ -703,7 +807,9 @@ function generateScreenFiles(classResults, numScreens) {
     
     optimizedScreenSections.forEach((section, screenIndex) => {
         const screenNumber = screenIndex + 1;
-        const html = generateScreenHTML(section, screenNumber, numScreens);
+        const lastY = (screenWindows[screenIndex] && !screenWindows[screenIndex].closed && typeof screenWindows[screenIndex].__lastScrollY === 'number')
+          ? screenWindows[screenIndex].__lastScrollY : 0;
+        const html = generateScreenHTML(section, screenNumber, numScreens, lastY);
         
         // Check if window exists and is still open
         if (screenWindows[screenIndex] && !screenWindows[screenIndex].closed) {
@@ -853,61 +959,49 @@ function distributeByStrategy(classResults, numScreens, strategy) {
 }
 
 function findOptimalLayoutForScreen(classResults, availableHeight) {
-    let bestLayout = null;
-    let bestFontSize = 0;
-    
     const availableWidth = (window.innerWidth || 1920) - 20;
-    const minColumnWidth = 280;
+    const minColumnWidth = 320;
     
-    // Smart max columns: prefer fewer columns to use vertical space better
-    // Don't exceed number of classes, and cap based on screen width
+    // Use user's max columns setting directly
     const maxColumnsByWidth = Math.floor(availableWidth / minColumnWidth);
-    const maxColumnsByClasses = Math.min(classResults.length, Math.ceil(classResults.length / 2)); // At least 2 classes per column
-    const maxColumns = Math.min(6, maxColumnsByWidth, maxColumnsByClasses);
+    const maxColumnsByClasses = classResults.length;
+    const maxColumnsLimit = Math.min(maxColumns, maxColumnsByWidth, maxColumnsByClasses);
     
-    console.log(`Finding optimal layout for screen: ${classResults.length} classes, max ${maxColumns} columns (width allows ${maxColumnsByWidth})`);
+    console.log(`Using ${maxColumnsLimit} columns (user max: ${maxColumns}, width allows: ${maxColumnsByWidth})`);
     
-    for (let numColumns = 1; numColumns <= maxColumns; numColumns++) {
-        const columnSections = distributeToColumns(classResults, numColumns);
-        if (columnSections.some(col => col.length === 0)) continue;
-        
-        const fontSizes = calculateFontSizesForLayout(columnSections, availableHeight);
-        const score = fontSizes.tableCell;
-        
-        console.log(`  ${numColumns} cols: ${score}px font`);
-        
-        // Prefer fewer columns if font size is similar (within 10%)
-        // This prioritizes vertical space utilization
-        if (!bestLayout || score > bestFontSize * 1.1) {
-            bestLayout = { optimalColumns: numColumns, columnSections, fontSizes };
-            bestFontSize = score;
-        }
-    }
+    // Fixed font sizes for predictable display
+    const fontSizes = {
+        classTitle: 17,
+        runnerName: 17,
+        tableHeader: 13,
+        tableCell: 15,
+        position: 15,
+        padding: 3,
+        headerPadding: 3,
+        cardMargin: 2
+    };
     
-    if (!bestLayout) {
-        const columnSections = [classResults];
-        const fontSizes = calculateFontSizesForLayout(columnSections, availableHeight);
-        bestLayout = { optimalColumns: 1, columnSections, fontSizes };
-    }
+    const columnSections = distributeToColumns(classResults, maxColumnsLimit);
     
-    console.log(`Best layout: ${bestLayout.optimalColumns} cols, ${bestFontSize}px font`);
-    return bestLayout;
+    return { 
+        optimalColumns: maxColumnsLimit, 
+        columnSections, 
+        fontSizes 
+    };
 }
 
 function distributeToColumns(classResults, numColumns) {
+    // Preserve visual reading order: fill down each column, then move to next column
     const columns = Array(numColumns).fill(null).map(() => []);
-    
-    // Try to balance by runner count instead of just class count
-    // This creates more even columns when classes have different sizes
-    const columnRunnerCounts = Array(numColumns).fill(0);
-    
-    classResults.forEach(classResult => {
-        // Put this class in the column with fewest runners so far
-        const minIndex = columnRunnerCounts.indexOf(Math.min(...columnRunnerCounts));
-        columns[minIndex].push(classResult);
-        columnRunnerCounts[minIndex] += classResult.runners.length;
+    const classesPerColumn = Math.ceil(classResults.length / numColumns);
+    classResults.forEach((classResult, index) => {
+        const columnIndex = Math.floor(index / classesPerColumn);
+        if (columnIndex < numColumns) {
+            columns[columnIndex].push(classResult);
+        } else {
+            columns[numColumns - 1].push(classResult);
+        }
     });
-    
     return columns;
 }
 
@@ -965,9 +1059,207 @@ function calculateFontSizesForLayout(columnSections, availableHeight) {
     return bestFontSize;
 }
 
-function generateScreenHTML(classResults, screenNumber, totalScreens) {
+function generateScreenHTML(classResults, screenNumber, totalScreens, initialScrollY = 0) {
     const { optimalColumns, columnSections, fontSizes } = findOptimalLayoutForScreen(classResults, (window.innerHeight || 1080) - 50);
+
+    // Readability thresholds for outdoor viewing (optimized for spacing)
+    const READABILITY = { tableCell: 15, runnerName: 17, tableHeader: 13, classTitle: 17, position: 15, padding: 3, headerPadding: 3 };
+    const needsScroll = fontSizes.tableCell < READABILITY.tableCell;
+    const applied = { ...fontSizes };
+    if (needsScroll) {
+        applied.tableCell = Math.max(applied.tableCell, READABILITY.tableCell);
+        applied.runnerName = Math.max(applied.runnerName, READABILITY.runnerName);
+        applied.tableHeader = Math.max(applied.tableHeader, READABILITY.tableHeader);
+        applied.classTitle = Math.max(applied.classTitle, READABILITY.classTitle);
+        applied.position = Math.max(applied.position, READABILITY.position);
+        applied.padding = Math.max(applied.padding, READABILITY.padding);
+        applied.headerPadding = Math.max(applied.headerPadding, READABILITY.headerPadding);
+    }
     
+    // ---------- Column segmentation to avoid scrolling ----------
+    const availableHeight = ((typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 1080) - 44;
+    const availableWidth = ((typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1920) - 20;
+    const minColumnWidth = 280;
+    const maxColumnsByWidth = Math.min(12, Math.floor(availableWidth / minColumnWidth));
+    const maxColumnsAllowed = Math.min(maxColumns, maxColumnsByWidth); // Respect user's max columns setting
+
+    const headerH = Math.ceil(applied.classTitle * 1.4 + applied.headerPadding * 2 + 4);
+    const tableHeaderH = Math.ceil(applied.tableHeader * 1.4 + applied.padding * 2 + 2);
+    const rowH = Math.ceil(applied.tableCell * 1.5 + applied.padding * 2 + 2);
+    const cardSpacing = applied.cardMargin + 5;
+
+    const flattenInOrder = (columns) => {
+        const list = [];
+        columns.forEach(col => col.forEach(cls => list.push(cls)));
+        return list;
+    };
+
+    const buildRows = (cls) => {
+        const totalRunners = cls.runners.length;
+        const finishedRunners = cls.runners.filter(r => r.status === 'finished');
+        const runningRunners = cls.runners.filter(r => r.status === 'running');
+        const checkedInRunners = cls.runners.filter(r => r.status === 'checked_in');
+        const activeRunners = [...finishedRunners, ...runningRunners].sort((a,b)=>{
+            const aTime = a.totalTime || Infinity; const bTime = b.totalTime || Infinity; return aTime - bTime;
+        });
+        const rows = [];
+        const rowFinished = (runner) => (
+            '<tr class="' + (runner.position===1?'gold-row':(runner.position===2?'silver-row':(runner.position===3?'bronze-row':''))) + '">' +
+            '<td class="position">' + (runner.position || '-') + '</td>' +
+            '<td class="runner-name">' + (runner.fullName||'') + '</td>' +
+            '<td class="club">' + (runner.club||'') + '</td>' +
+            '<td class="time">' + formatTime(runner.totalTime) + '</td>' +
+            '<td class="diff">' + formatTime(runner.timeBehindLeader) + '</td>' +
+            '<td class="lost">' + formatTime(runner.timeLost) + '</td>' +
+            '</tr>'
+        );
+        const rowRunning = (runner) => (
+            '<tr style="background: #ffffcc;">' +
+            '<td class="position">-</td>' +
+            '<td class="runner-name">' + (runner.fullName||'') + '</td>' +
+            '<td class="club">' + (runner.club||'') + '</td>' +
+            '<td class="time" style="color:#0066cc;font-weight:bold;">' + formatTime(runner.totalTime) + '</td>' +
+            '<td colspan="2" style="text-align:center;color:#0066cc;font-weight:bold;">Running</td>' +
+            '</tr>'
+        );
+        activeRunners.forEach(r=>{ rows.push(r.status==='running'?rowRunning(r):rowFinished(r)); });
+        if (checkedInRunners.length>0 && activeRunners.length>0) {
+            rows.push('<tr><td colspan="6" style="border-top: 2px solid #999; padding: 0;"></td></tr>');
+        }
+        checkedInRunners.sort((a,b)=> (a.fullName||'').localeCompare(b.fullName||''));
+        checkedInRunners.forEach(r=>{
+            rows.push('<tr style="opacity:0.6;">' +
+                '<td class="position">-</td>' +
+                '<td class="runner-name">' + (r.fullName||'') + '</td>' +
+                '<td class="club">' + (r.club||'') + '</td>' +
+                '<td colspan="3" style="text-align:center;font-style:italic;color:#666;">Checked In</td>' +
+            '</tr>');
+        });
+        if (totalRunners===0) {
+            rows.push('<tr><td colspan="6" style="text-align:center;font-style:italic;">No runners</td></tr>');
+        }
+        return rows;
+    };
+
+    // Ensure we never exceed user's max columns preference
+    const actualOptimalColumns = Math.min(optimalColumns, maxColumnsAllowed);
+    console.log(`[generateScreenHTML] optimalColumns=${optimalColumns}, maxColumnsAllowed=${maxColumnsAllowed}, actualOptimalColumns=${actualOptimalColumns}`);
+    
+    // Recalculate column distribution based on actualOptimalColumns, not the pre-divided columnSections
+    const actualColumnSections = distributeToColumns(classResults, actualOptimalColumns);
+    const orderedClasses = flattenInOrder(actualColumnSections);
+    const classRows = orderedClasses.map(c=>({ cls:c, rows: buildRows(c) }));
+
+    const estHeight = (rowCount) => headerH + tableHeaderH + rowCount * rowH + cardSpacing;
+
+    const packByTarget = (numCols) => {
+        const columns = Array(numCols).fill(null).map(()=>[]);
+        const used = Array(numCols).fill(0);
+        // Target height tries to equalize column bottoms across exactly numCols
+        const totalH = classRows.reduce((s,it)=> s + estHeight(it.rows.length), 0);
+        const target = Math.ceil(totalH / numCols); // aim for balanced columns, not forcing viewport height
+        let colIdx = 0;
+        const minRowsPerSegment = 3;
+
+        for (let idx = 0; idx < classRows.length; idx++) {
+            const item = classRows[idx];
+            let remainingRows = item.rows.length;
+            let startIndex = 0;
+            let cont = false;
+
+            while (remainingRows > 0) {
+                if (colIdx >= numCols) return { success:false };
+                const columnRemaining = availableHeight - used[colIdx];
+                // Try to keep each column near target; if this is not the last column and we're over target, move on
+                const colsLeft = (numCols - colIdx - 1);
+                if (used[colIdx] >= target && colsLeft > 0) { colIdx++; continue; }
+
+                const fixed = headerH + tableHeaderH + cardSpacing;
+                const rowsFit = Math.floor((Math.min(target, availableHeight) - used[colIdx] - fixed) / rowH);
+
+                if (rowsFit < minRowsPerSegment) {
+                    // Not enough space here; move to next column
+                    if (colsLeft > 0) { colIdx++; continue; }
+                    // Last column: force place as much as fits
+                    const rowsLast = Math.floor((columnRemaining - fixed) / rowH);
+                    if (rowsLast <= 0) return { success:false };
+                    const take = Math.max(1, Math.min(rowsLast, remainingRows));
+                    const slice = item.rows.slice(startIndex, startIndex + take);
+                    columns[colIdx].push({ cls: item.cls, rows: slice, cont });
+                    used[colIdx] += fixed + slice.length * rowH;
+                    remainingRows -= take;
+                    startIndex += take;
+                    cont = true;
+                    continue;
+                }
+
+                const take = Math.min(rowsFit, remainingRows);
+                const slice = item.rows.slice(startIndex, startIndex + take);
+                columns[colIdx].push({ cls: item.cls, rows: slice, cont });
+                used[colIdx] += fixed + slice.length * rowH;
+                remainingRows -= take;
+                startIndex += take;
+                cont = true;
+
+                // If we exceeded target by adding, advance column
+                if (used[colIdx] >= target && colsLeft > 0) { colIdx++; }
+            }
+        }
+
+        // Validate heights
+        const ok = used.every(h => h <= availableHeight + rowH); // allow a little overflow due to safety
+        return { success: ok, columns };
+    };
+
+    // Try from optimal columns up to user's max columns to achieve best packing
+    console.log(`[packing] Starting with actualOptimalColumns=${actualOptimalColumns}, maxColumnsAllowed=${maxColumnsAllowed}`);
+    let pack = packByTarget(actualOptimalColumns);
+    let usedColumns = actualOptimalColumns;
+    console.log(`[packing] Initial pack with ${actualOptimalColumns} cols: success=${pack.success}`);
+    for (let c = actualOptimalColumns; (!pack.success) && c < maxColumnsAllowed; c++) {
+        console.log(`[packing] Trying ${c+1} columns...`);
+        const attempt = packByTarget(c+1);
+        if (attempt.success) { pack = attempt; usedColumns = c+1; console.log(`[packing] Success with ${usedColumns} columns`); break; }
+    }
+
+    const renderSegment = (seg) => {
+        const headerText = seg.cls.className + (seg.cont ? ' (cont)' : '');
+        const km = (seg.cls.courseLength/1000).toFixed(1) + 'km';
+        return (
+            '<div class="class-card" style="--hh:' + headerH + 'px">' +
+              '<div class="class-header-compact">' + headerText + ' | ' + km + '</div>' +
+              '<table class="results-table">' +
+                '<thead><tr>' +
+                '<th class=\"col-pos\" style=\"width:10%;text-align:center;\">POS</th>' +
+                '<th class=\"col-runner\" style=\"width:36%;\">RUNNER</th>' +
+                '<th class=\"col-club\" style=\"width:12%;\">CLUB</th>' +
+                '<th class=\"col-time\" style=\"width:14%;text-align:right;\">TIME</th>' +
+                '<th class=\"col-diff\" style=\"width:14%;text-align:right;\">DIFF</th>' +
+                '<th class=\"col-lost\" style=\"width:14%;text-align:right;\">LOST</th>' +
+                '</tr></thead>' +
+                '<tbody>' + seg.rows.join('') + '</tbody>' +
+              '</table>' +
+            '</div>'
+        );
+    };
+
+    const effectiveColumns = pack.success ? usedColumns : actualOptimalColumns;
+    console.log(`[rendering] pack.success=${pack.success}, effectiveColumns=${effectiveColumns}`);
+    const columnsData = pack.success ? pack.columns : actualColumnSections;
+    console.log(`[rendering] columnsData.length=${columnsData.length}`);
+    const normalizedColumns = Array.from({ length: effectiveColumns }, (_, i) => columnsData[i] || []);
+    console.log(`[rendering] normalizedColumns.length=${normalizedColumns.length}`);
+    console.log(`[rendering] Final grid will have ${effectiveColumns} columns`);
+
+    const contentHtml = normalizedColumns.map(column => {
+        if (!pack.success) {
+            // Fallback: render whole classes (no segmentation)
+            return '<div class="column">' + column.map(classResult => generateClassHTML(classResult)).join('') + '</div>';
+        }
+        return '<div class="column">' + column.map(seg => renderSegment(seg)).join('') + '</div>';
+    }).join('');
+    const enableScrollFinal = (!pack.success) || needsScroll;
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -978,97 +1270,172 @@ function generateScreenHTML(classResults, screenNumber, totalScreens) {
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: Arial, sans-serif;
+            font-weight: 600;
             background: #ffffff;
             min-height: 100vh;
             padding: 5px;
-            overflow-x: hidden;
+            overflow: hidden;
         }
         .screen-header {
             background: #000;
             color: #FFD700;
-            padding: 3px 10px;
-            font-size: 14px;
-            font-weight: bold;
+            padding: 4px 10px;
+            font-size: 16px;
+            font-weight: 800;
             text-align: center;
-            margin-bottom: 3px;
+            margin-bottom: 4px;
             border: 1px solid #FFD700;
         }
+        .scroll-viewport { position: relative; height: calc(100vh - 44px); overflow: auto; width: 100%; -ms-overflow-style: none; scrollbar-width: none; }
+        .scroll-viewport::-webkit-scrollbar { display: none; }
         .columns-container {
             display: grid;
-            grid-template-columns: repeat(${optimalColumns}, 1fr);
-            gap: 5px;
-            height: calc(100vh - 40px);
-            overflow: hidden;
+            grid-template-columns: repeat(${effectiveColumns}, minmax(0, 1fr));
+            gap: 6px;
+            width: 100%;
         }
-        .column { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+        .column { display: flex; flex-direction: column; min-height: 0; }
         .class-card {
             background: white;
             border-radius: 2px;
-            margin-bottom: ${fontSizes.cardMargin}px;
+            margin-bottom: ${applied.cardMargin}px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            overflow: hidden;
             border: 1px solid #333;
             flex-shrink: 0;
+            position: relative;
+            overflow: visible; /* allow sticky headers to work */
         }
         .class-header-compact {
             background: #333;
             color: white;
-            padding: ${fontSizes.headerPadding}px;
-            font-size: ${fontSizes.classTitle}px;
-            font-weight: bold;
+            padding: ${applied.headerPadding}px;
+            font-size: ${applied.classTitle}px;
+            font-weight: 800;
             border-bottom: 1px solid #FFD700;
             text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
-        .results-table { width: 100%; border-collapse: collapse; }
-        .results-table th {
-            background: #333333;
-            color: white;
-            padding: ${fontSizes.padding}px;
+        .results-table { position: relative; z-index: 1; }
+        .results-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .results-table thead th {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            background: #000;
+            color: #fff;
+            padding: ${applied.padding}px;
             text-align: left;
-            font-weight: bold;
-            font-size: ${fontSizes.tableHeader}px;
-            border-bottom: 1px solid #FFD700;
+            font-weight: 800;
+            font-size: ${applied.tableHeader}px;
+            border-bottom: 2px solid #FFD700;
+            position: sticky;
+            top: var(--hh, 28px); /* per-card header height variable */
+            z-index: 9;
         }
+        /* minimum widths optimized for better spacing */
+        .results-table thead th.col-pos { min-width: 50px; }
+        .results-table thead th.col-runner { min-width: 140px; }
+        .results-table thead th.col-club { min-width: 60px; }
+        .results-table thead th.col-time { min-width: 82px; }
+        .results-table thead th.col-diff { min-width: 75px; }
+        .results-table thead th.col-lost { min-width: 75px; }
         .results-table td {
-            padding: ${fontSizes.padding}px;
+            padding: ${applied.padding}px;
             border-bottom: 1px solid #ddd;
-            font-size: ${fontSizes.tableCell}px;
-            line-height: 1.4;
+            font-size: ${applied.tableCell}px;
+            font-weight: 600;
+            line-height: 1.5;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        .position {
-            font-weight: bold;
-            text-align: center;
-            font-size: ${fontSizes.position}px;
-        }
-        .gold-row { background: #FFD700 !important; border-left: 8px solid #B8860B !important; font-weight: bold; }
+        .position { font-weight: 900; text-align: center; font-size: ${applied.position}px; }
+        .gold-row { background: #FFD700 !important; border-left: 8px solid #B8860B !important; font-weight: 900; }
         .silver-row { background: #C0C0C0 !important; border-left: 6px solid #808080 !important; }
         .bronze-row { background: #CD7F32 !important; border-left: 6px solid #8B4513 !important; }
-        .runner-name { font-weight: bold; font-size: ${fontSizes.runnerName}px; }
-        .time, .diff, .lost { font-family: monospace; text-align: right; }
-        .club { color: #666; }
-        .status-tag {
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: ${Math.max(5, fontSizes.tableCell - 2)}px;
-            font-weight: bold;
-            text-transform: uppercase;
-        }
-        .status-finished { background: #00CC00; color: white; }
-        .status-dnf { background: #CC0000; color: white; }
-        .status-dns { background: #FF8800; color: white; }
+        .runner-name { font-weight: 900; font-size: ${applied.runnerName}px; }
+        .time, .diff, .lost { font-family: monospace; text-align: right; font-weight: 700; }
+        .club { color: #333; font-weight: 600; }
     </style>
 </head>
 <body>
     <div class="screen-header">
-        SCREEN ${screenNumber} OF ${totalScreens} | ${optimalColumns} COLS | ${classResults.reduce((sum, c) => sum + c.runners.length, 0)} RUNNERS | FONT: ${fontSizes.tableCell}px | ${new Date().toLocaleTimeString()}
+        SCREEN ${screenNumber} OF ${totalScreens} | ${effectiveColumns} COLS | ${classResults.reduce((sum, c) => sum + c.runners.length, 0)} RUNNERS | FONT: ${applied.tableCell}px${enableScrollFinal ? ' | SCROLL' : ''} | LIVE | ${new Date().toLocaleTimeString()}
     </div>
-    <div class="columns-container">
-        ${columnSections.map(column => `
-            <div class="column">
-                ${column.map(classResult => generateClassHTML(classResult)).join('')}
-            </div>
-        `).join('')}
+    <div class="scroll-viewport">
+      <div class="columns-container">
+        ${contentHtml}
+      </div>
     </div>
+    <script>
+      (function(){
+        const viewport = document.querySelector('.scroll-viewport');
+        const content = document.querySelector('.columns-container');
+        const enableScroll = ${enableScrollFinal};
+        let rafId = null, pauseUntil = 0, y = Math.max(0, ${initialScrollY}|0), dir = 1;
+        if (viewport) { viewport.scrollTop = y; }
+        function cancel(){ if(rafId) cancelAnimationFrame(rafId); rafId = null; if(viewport) viewport.scrollTop = y; }
+        function start(){
+          if(!viewport || !content) return;
+          const overflow = Math.max(0, content.scrollHeight - viewport.clientHeight);
+          console.log('[Scroll Init] Content height: ' + content.scrollHeight + 'px, Viewport height: ' + viewport.clientHeight + 'px, Overflow: ' + overflow + 'px');
+          if(overflow <= 0) {
+            console.log('[Scroll Init] No overflow - content fits on screen, scrolling disabled');
+            return;
+          }
+          const pxPerSec = Math.min(260, Math.max(28, overflow/35));
+          const pauseMs = 2500;
+          const cycleMs = overflow>0 ? Math.round(2*(overflow/pxPerSec)*1000 + 2*pauseMs) : 0;
+          console.log('[Scroll Init] Starting scroll: speed=' + pxPerSec + 'px/s, pause=' + pauseMs + 'ms, cycle=' + cycleMs + 'ms');
+          // Notify parent about cycle time at start
+          try { window.opener && window.opener.postMessage({ type: 'lr_cycle', screen: ${screenNumber}, cycleMs: cycleMs }, '*'); } catch(e) {}
+          function step(ts){ 
+            if(!step.t) step.t = ts; 
+            const dt=(ts-step.t)/1000; 
+            step.t=ts; 
+            
+            // Check if we're in a pause
+            if(pauseUntil > 0 && ts < pauseUntil){ 
+              rafId=requestAnimationFrame(step); 
+              return; 
+            }
+            
+            // Update scroll position
+            const prevY = y;
+            y += dir*pxPerSec*dt; 
+            
+            // Check boundaries and set pause
+            if(dir === 1 && y >= overflow){ 
+              y = overflow; 
+              dir = -1; 
+              pauseUntil = ts + pauseMs;
+              console.log('[Scroll] Reached BOTTOM, pausing for ' + pauseMs + 'ms, will scroll UP next');
+            } else if(dir === -1 && y <= 0){ 
+              y = 0; 
+              dir = 1; 
+              pauseUntil = ts + pauseMs;
+              console.log('[Scroll] Reached TOP, pausing for ' + pauseMs + 'ms, will scroll DOWN next');
+              // Schedule data refresh AFTER the pause completes
+              setTimeout(function(){
+                console.log('[Scroll] Pause complete, notifying parent to check for updates');
+                try { window.opener && window.opener.postMessage({ type: 'lr_cycle', screen: ${screenNumber}, cycleMs: cycleMs }, '*'); } catch(e) {} 
+              }, pauseMs);
+            }
+            
+            viewport.scrollTop = y;
+            try { window.__lastScrollY = y; } catch {}
+            rafId=requestAnimationFrame(step); 
+          }
+          cancel(); rafId=requestAnimationFrame(step);
+        }
+        function init(){ cancel(); if(enableScroll) start(); else { const overflow = Math.max(0, content.scrollHeight - viewport.clientHeight); if(overflow>0) start(); } }
+        window.addEventListener('resize', ()=>{ setTimeout(init, 250); });
+        init();
+      })();
+    </script>
 </body>
 </html>`;
 }
@@ -1143,12 +1510,12 @@ function generateClassHTML(classResult) {
             <table class="results-table">
                 <thead>
                     <tr>
-                        <th style="width: 50px; text-align: center;">POS</th>
-                        <th style="width: 180px;">RUNNER</th>
-                        <th style="width: 100px;">CLUB</th>
-                        <th style="width: 70px; text-align: right;">TIME</th>
-                        <th style="width: 70px; text-align: right;">DIFF</th>
-                        <th style="width: 70px; text-align: right;">LOST</th>
+                        <th style="width: 8%; text-align: center;">POS</th>
+                        <th style="width: 44%;">RUNNER</th>
+                        <th style="width: 16%;">CLUB</th>
+                        <th style="width: 12%; text-align: right;">TIME</th>
+                        <th style="width: 10%; text-align: right;">DIFF</th>
+                        <th style="width: 10%; text-align: right;">LOST</th>
                     </tr>
                 </thead>
                 <tbody>

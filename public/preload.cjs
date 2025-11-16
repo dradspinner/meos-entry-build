@@ -47,22 +47,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Shell operations
   openExternal: (path) => ipcRenderer.invoke('open-external', path),
   
-  // Serial debugging
-  debugSerial: () => {
-    console.log('[Preload] Serial API check:', {
-      hasSerial: 'serial' in navigator,
-      userAgent: navigator.userAgent,
-      platform: process.platform
-    });
-    
-    if ('serial' in navigator) {
-      // Log serial API methods availability
-      console.log('[Preload] Serial API methods:', {
-        getPorts: typeof navigator.serial.getPorts,
-        requestPort: typeof navigator.serial.requestPort
-      });
-    }
-  }
+  // Serial debugging (no-op in production)
+  debugSerial: () => {}
 });
 
 // Also expose as 'electron' for compatibility
@@ -78,6 +64,5 @@ contextBridge.exposeInMainWorld('electron', {
   }
 });
 
-// Log when preload is ready
-console.log('[Preload] Electron API exposed to renderer process');
-console.log('[Preload] Serial API available:', 'serial' in navigator);
+// Silence console in renderer to avoid clutter
+(() => { try { const noop = () => {}; console.log=noop; console.info=noop; console.warn=noop; console.error=noop; } catch(e) {} })();

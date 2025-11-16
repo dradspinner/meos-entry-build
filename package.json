@@ -57,6 +57,7 @@
       "!public/live_data.json",
       "node_modules/**/*"
     ],
+    "icon": "public/icon.ico",
     "win": {
       "target": [
         {
@@ -81,7 +82,10 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico"
     }
   },
   "devDependencies": {
@@ -105,6 +109,8 @@
     "globals": "^16.3.0",
     "jsdom": "^27.0.0",
     "msw": "^2.11.2",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.4",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.39.1",
     "vite": "^7.1.2",

@@ -1,4 +1,6 @@
         // Configuration
+        // Silence console in this standalone XML page
+        (function(){ try { var noop=function(){}; console.log=noop; console.info=noop; console.warn=noop; console.error=noop; } catch(e) {} })();
         const MEOS_API_BASE = 'http://localhost:2009';
         const PYTHON_SERVER = 'http://localhost:8000'; // Python server for XML files
         let REFRESH_INTERVAL = 15000; // 15 seconds (default, user can change)

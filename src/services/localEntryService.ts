@@ -924,9 +924,10 @@ class LocalEntryService {
     console.log(`[Format Detection] Headers found:`, headers);
     console.log(`[Format Detection] Header string:`, headerString);
     
-    // OE12 format detection - EventReg exports
-    if (headerString.includes('oe0002_v12') || 
-        (headerString.includes('entry id') && headerString.includes('chipno1') && headerString.includes('entry class (short)'))) {
+    // OE12 format detection - EventReg exports (OE0002) and Jotform OE exports (OE0001)
+    if (headerString.includes('oe0001_v12') || headerString.includes('oe0002_v12') || 
+        (headerString.includes('entry id') && headerString.includes('chipno1') && headerString.includes('entry class (short)')) ||
+        (headerString.includes('chipno') && headerString.includes('entry class (short)'))) {
       console.log(`[Format Detection] Detected OE12 format`);
       return 'OE12';
     }
@@ -1003,7 +1004,8 @@ class LocalEntryService {
       // Check rental/hired card status with debug info
       // In OE12 format: Rented='X' means needs rental card, Rented='0' means owns/hired card
       const rentedValue = csvEntry['Rented'] || csvEntry['rented'] || '';
-      const cardNumber = csvEntry['Chipno1'] || csvEntry['Chipno2'] || csvEntry['Chipno3'] || csvEntry['Chipno4'] || csvEntry['Chipno5'] || csvEntry['Chipno6'] || '0';
+      // Support both OE0001 (single Chipno) and OE0002 (Chipno1-6) formats
+      const cardNumber = csvEntry['Chipno'] || csvEntry['Chipno1'] || csvEntry['Chipno2'] || csvEntry['Chipno3'] || csvEntry['Chipno4'] || csvEntry['Chipno5'] || csvEntry['Chipno6'] || '0';
       
       // Set needsRentalCard based on the Rented field
       const needsRentalCard = rentedValue === 'X';
@@ -1029,7 +1031,8 @@ class LocalEntryService {
         phone: csvEntry['Phone'] || csvEntry['Mobile'] || '',
         classId: actualClassId,
         className: csvClassName,
-        cardNumber: csvEntry['Chipno1'] || csvEntry['Chipno2'] || csvEntry['Chipno3'] || csvEntry['Chipno4'] || csvEntry['Chipno5'] || csvEntry['Chipno6'] || '0',
+        // Support both OE0001 (single Chipno) and OE0002 (Chipno1-6) formats
+        cardNumber: csvEntry['Chipno'] || csvEntry['Chipno1'] || csvEntry['Chipno2'] || csvEntry['Chipno3'] || csvEntry['Chipno4'] || csvEntry['Chipno5'] || csvEntry['Chipno6'] || '0',
         isHiredCard: isHired,
         needsRentalCard, // Pass the rental card flag
         fee: parseInt(csvEntry['Start fee'] || '0'),

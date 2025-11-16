@@ -11,9 +11,6 @@ const { JSDOM } = require('jsdom');
 const dom = new JSDOM('<!DOCTYPE html>');
 global.DOMParser = dom.window.DOMParser;
 
-// Course color order
-const COURSE_COLOR_ORDER = ['white', 'yellow', 'orange', 'brown', 'green', 'red', 'blue'];
-
 function parseOE12XML(xmlContent) {
   const parser = new DOMParser();
   const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
@@ -27,6 +24,8 @@ function parseOE12XML(xmlContent) {
     
     const classId = classElement?.querySelector('Id')?.textContent?.trim() || '';
     const className = classElement?.querySelector('Name')?.textContent?.trim() || `Class ${classId}`;
+    const courseId = courseElement?.querySelector('Id')?.textContent?.trim();
+    const courseName = courseElement?.querySelector('Name')?.textContent?.trim();
     const courseLength = courseElement?.querySelector('Length')?.textContent?.trim();
     const courseClimb = courseElement?.querySelector('Climb')?.textContent?.trim();
     const numControls = courseElement?.querySelector('NumberOfControls')?.textContent?.trim();
@@ -44,6 +43,7 @@ function parseOE12XML(xmlContent) {
       const familyName = personElement.querySelector('Name > Family')?.textContent?.trim() || '';
       const givenName = personElement.querySelector('Name > Given')?.textContent?.trim() || '';
       const name = `${givenName} ${familyName}`.trim();
+      const gender = personElement.getAttribute('sex') || '';
       const club = orgElement?.querySelector('Name')?.textContent?.trim() || '';
       const status = resultElement.querySelector('Status')?.textContent?.trim() || 'Unknown';
       const timeText = resultElement.querySelector('Time')?.textContent?.trim() || '0';
@@ -67,11 +67,12 @@ function parseOE12XML(xmlContent) {
         runTime: timeText,
         place: position,
         startNumber,
+        gender,
         splits: splits.length > 0 ? splits : undefined
       });
     });
     
-    // Sort runners by place
+    // Sort runners by place only (match OE ordering within class)
     runners.sort((a, b) => {
       const placeA = parseInt(a.place) || 999;
       const placeB = parseInt(b.place) || 999;
@@ -82,6 +83,8 @@ function parseOE12XML(xmlContent) {
     results.push({
       classId,
       className,
+      courseId,
+      courseName,
       courseLength: courseLength ? parseInt(courseLength) : undefined,
       courseClimb: courseClimb ? parseInt(courseClimb) : undefined,
       numControls: numControls ? parseInt(numControls) : undefined,
@@ -89,32 +92,8 @@ function parseOE12XML(xmlContent) {
     });
   });
   
-  // Sort by color order
-  results.sort((a, b) => {
-    const colorA = extractCourseColor(a.className);
-    const colorB = extractCourseColor(b.className);
-    
-    if (colorA && colorB) {
-      const indexA = COURSE_COLOR_ORDER.indexOf(colorA);
-      const indexB = COURSE_COLOR_ORDER.indexOf(colorB);
-      
-      if (indexA !== -1 && indexB !== -1) {
-        return indexA - indexB;
-      }
-    }
-    
-    return a.className.localeCompare(b.className);
-  });
-  
+  // Preserve OE class order as it appears in the XML
   return results;
-}
-
-function extractCourseColor(className) {
-  const lowerName = className.toLowerCase();
-  for (const color of COURSE_COLOR_ORDER) {
-    if (lowerName.includes(color)) return color;
-  }
-  return null;
 }
 
 function formatTime(seconds) {
@@ -152,6 +131,16 @@ function getColorForTime(time, bestTime, worstTime) {
 
 function generateSplitsHTML(classResults, eventName, eventDate) {
   const timestamp = new Date().toLocaleString();
+  
+  // Group classes by course name for splits
+  const courseMap = new Map();
+  classResults.forEach(classResult => {
+    const courseName = classResult.courseName || classResult.className;
+    if (!courseMap.has(courseName)) {
+      courseMap.set(courseName, []);
+    }
+    courseMap.get(courseName).push(classResult);
+  });
   
   let html = `<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html>
@@ -204,28 +193,54 @@ tr#fix { background-color: #E0FFFF; }
 <table id=ln><tr><td>&nbsp</td></tr></table>
 `;
   
-  // Generate splits for each class
-  classResults.forEach(classResult => {
+  // Generate splits for each course
+  courseMap.forEach((classes, courseName) => {
+    // Get all runners from all classes on this course
+    const allRunnersOnCourse = [];
+    let courseLength;
+    let courseClimb;
+    let numControls;
+    
+    classes.forEach(classResult => {
+      const runnersWithSplits = classResult.runners.filter(r => r.splits && r.splits.length > 0);
+      runnersWithSplits.forEach(runner => {
+        allRunnersOnCourse.push({
+          ...runner,
+          club: `${runner.club}|${classResult.className}` // Store class name with club
+        });
+      });
+      if (!courseLength && classResult.courseLength) {
+        courseLength = classResult.courseLength;
+      }
+      if (!courseClimb && classResult.courseClimb) {
+        courseClimb = classResult.courseClimb;
+      }
+      if (!numControls && classResult.numControls) {
+        numControls = classResult.numControls;
+      }
+    });
+    
+    const runnersWithSplits = allRunnersOnCourse;
     const runnersWithSplits = classResult.runners.filter(r => r.splits && r.splits.length > 0);
     if (runnersWithSplits.length === 0) return;
     
     const courseInfo = [];
-    if (classResult.courseLength) {
-      courseInfo.push(`${(classResult.courseLength / 1000).toFixed(1)} km`);
+    if (courseLength) {
+      courseInfo.push(`${(courseLength / 1000).toFixed(1)} km`);
     }
-    if (classResult.courseClimb) {
-      courseInfo.push(`${classResult.courseClimb} m`);
+    if (courseClimb) {
+      courseInfo.push(`${courseClimb} m`);
     }
     const courseInfoText = courseInfo.join('  ');
     
-    const numControls = classResult.numControls || runnersWithSplits[0].splits.length;
-    const controlsText = `${numControls} C`;
+    const numControlsDisplay = numControls || runnersWithSplits[0].splits.length;
+    const controlsText = `${numControlsDisplay} C`;
     
     html += `
 <table id=ln><tr><td>&nbsp</td></tr></table>
 <table width=1382px>
 <tbody>
-<tr><td id=c00 width=248px>${classResult.className}  (${runnersWithSplits.length})<td id=c01 width=168px>${courseInfoText}<td id=c02 width=82px>${controlsText}<td id="header"></td>
+<tr><td id=c00 width=248px>${courseName}  (${runnersWithSplits.length})<td id=c01 width=168px>${courseInfoText}<td id=c02 width=82px>${controlsText}<td id="header"></td>
 </tr>
 </tbody>
 </table>
@@ -245,8 +260,8 @@ tr#fix { background-color: #E0FFFF; }
 <table width=1382px>
 <col width=40px>
 <col width=50px>
-<col width=168px>
-<col width=56px>
+<col width=150px>
+<col width=90px>
 <col width=74px>`;
     
     for (let i = 0; i < maxControlsPerRow; i++) {
@@ -268,8 +283,8 @@ tr#fix { background-color: #E0FFFF; }
 <table width=1382px>
 <col width=40px>
 <col width=50px>
-<col width=168px>
-<col width=56px>
+<col width=150px>
+<col width=90px>
 <col width=74px>`;
     
     for (let i = 0; i < maxControlsPerRow; i++) {
@@ -347,8 +362,11 @@ tr#fix { background-color: #E0FFFF; }
         prevTime = split.time;
       });
       
+      // Extract class name and club from the combined field
+      const [actualClub, className] = (runner.club || '|').split('|');
+      
       // Row 1: Name and cumulative times (first set of controls)
-      html += `<tr ${bgClass}><td id=c10>${place}<td id=c11>${stno}<td id=c12><nobr>${runner.name}</nobr><td><nobr>${classResult.className}</nobr><td id=c14>${totalTime}`;
+      html += `<tr ${bgClass}><td id=c10>${place}<td id=c11>${stno}<td id=c12><nobr>${runner.name}</nobr><td><nobr>${className || ''}</nobr><td id=c14>${totalTime}`;
       
       const firstRowControls = Math.min(maxControlsPerRow, runner.splits.length);
       for (let i = 0; i < firstRowControls; i++) {
@@ -365,7 +383,7 @@ tr#fix { background-color: #E0FFFF; }
       html += `</tr>\n`;
       
       // Row 2: Club and leg times (first set of controls)
-      html += `<tr><td id=c10><td id=c11><td id=c12><nobr>${runner.club}</nobr><td><nobr></nobr><td id=c14>`;
+      html += `<tr><td id=c10><td id=c11><td id=c12><nobr>${actualClub || ''}</nobr><td><nobr></nobr><td id=c14>`;
       
       for (let i = 0; i < firstRowControls; i++) {
         const legTime = legTimes[i];
