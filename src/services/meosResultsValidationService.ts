@@ -523,13 +523,3 @@ class MeOSResultsValidationService {
 
 export const meosResultsValidationService = new MeOSResultsValidationService();
 
-// Extend window interface for Electron IPC
-declare global {
-  interface Window {
-    // Merge with existing electronAPI type by using any augmentation
-    electronAPI?: any & {
-      meosTest?: (config: MeOSConnectionConfig) => Promise<boolean>;
-      meosGetRunners?: (eventId: string) => Promise<MeOSRunnerEntry[]>;
-    };
-  }
-}

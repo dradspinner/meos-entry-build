@@ -15,6 +15,9 @@ interface ElectronAPI {
   isElectron: boolean;
   debugSerial: () => void;
   openExternal: (path: string) => Promise<{ success: boolean; error?: string }>;
+  // MeOS integration methods (optional)
+  meosTest?: (config: any) => Promise<boolean>;
+  meosGetRunners?: (eventId: string) => Promise<any[]>;
 }
 
 declare global {

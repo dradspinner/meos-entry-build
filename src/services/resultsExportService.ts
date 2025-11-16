@@ -4,7 +4,7 @@
  * Handles importing OE12 XML splits files and generating HTML results pages
  */
 
-interface RunnerResult {
+export interface RunnerResult {
   id: string;
   name: string;
   club: string;
@@ -12,22 +12,31 @@ interface RunnerResult {
   startTime: string; // in 1/10 seconds
   runTime: string; // in 1/10 seconds
   place: string;
-  gender?: string; // 'F' or 'M'
   splits?: Split[];
+  // Additional fields for CSV export
+  firstName?: string;
+  lastName?: string;
+  yearOfBirth?: number;
+  sex?: string;
+  cardNumber?: string;
+  startTime_raw?: string; // HH:MM:SS format
+  finishTime_raw?: string; // HH:MM:SS format
 }
 
-interface Split {
+export interface Split {
   controlCode: string;
   time: string; // cumulative time in 1/10 seconds
   legTime?: string; // time for this leg
 }
 
-interface ClassResult {
+export interface ClassResult {
   classId: string;
   className: string;
   courseId?: string;
-  courseName?: string;
   courseLength?: number;
+  courseClimb?: number;
+  courseControls?: number;
+  courseName?: string;
   runners: RunnerResult[];
 }
 
@@ -49,6 +58,9 @@ interface CourseSplitAnalysis {
     behindBest: number;
   }[];
 }
+
+// Course color order as per user rules
+const COURSE_COLOR_ORDER = ['white', 'yellow', 'orange', 'brown', 'green', 'red', 'blue'];
 
 class ResultsExportService {
   /**
@@ -75,9 +87,10 @@ class ResultsExportService {
       
       const classId = classElement?.querySelector('Id')?.textContent?.trim() || '';
       const className = classElement?.querySelector('Name')?.textContent?.trim() || `Class ${classId}`;
-      const courseId = courseElement?.querySelector('Id')?.textContent?.trim();
-      const courseName = courseElement?.querySelector('Name')?.textContent?.trim();
       const courseLength = courseElement?.querySelector('Length')?.textContent?.trim();
+      const courseClimb = courseElement?.querySelector('Climb')?.textContent?.trim();
+      const courseControls = courseElement?.querySelector('NumberOfControls')?.textContent?.trim();
+      const courseName = courseElement?.querySelector('Name')?.textContent?.trim();
       
       const runners: RunnerResult[] = [];
       
@@ -96,9 +109,6 @@ class ResultsExportService {
         const givenName = personElement.querySelector('Name > Given')?.textContent?.trim() || '';
         const name = `${givenName} ${familyName}`.trim();
         
-        // Extract gender from XML
-        const gender = personElement.getAttribute('sex') || '';
-        
         // Extract club
         const club = orgElement?.querySelector('Name')?.textContent?.trim() || '';
         
@@ -106,6 +116,22 @@ class ResultsExportService {
         const status = resultElement.querySelector('Status')?.textContent?.trim() || 'Unknown';
         const timeText = resultElement.querySelector('Time')?.textContent?.trim() || '0';
         const position = resultElement.querySelector('Position')?.textContent?.trim() || '';
+        
+        // Extract additional CSV fields
+        const birthDate = personElement.querySelector('BirthDate')?.textContent?.trim();
+        const sex = personElement.querySelector('sex')?.textContent || personElement.getAttribute('sex');
+        const controlCard = resultElement.querySelector('ControlCard')?.textContent?.trim();
+        const startTimeElement = resultElement.querySelector('StartTime');
+        const finishTimeElement = resultElement.querySelector('FinishTime');
+        
+        // Extract year from birth date if available
+        let yearOfBirth: number | undefined;
+        if (birthDate) {
+          const yearMatch = birthDate.match(/^(\d{4})/);
+          if (yearMatch) {
+            yearOfBirth = parseInt(yearMatch[1]);
+          }
+        }
         
         // Parse splits
         const splits: Split[] = [];
@@ -116,14 +142,9 @@ class ResultsExportService {
           splits.push({ controlCode, time });
         });
         
-        // Add finish split using the total time from Result (only for OK status)
-        if (status === 'OK' && splits.length > 0 && timeText && parseInt(timeText) > 0) {
-          const finishTime = timeText;
-          const lastSplitTime = splits[splits.length - 1].time;
-          // Only add if finish time is different from last split (i.e., there's a run-in)
-          if (finishTime !== lastSplitTime) {
-            splits.push({ controlCode: 'F', time: finishTime });
-          }
+        // Add finish time as final split (for calculating last leg)
+        if (splits.length > 0 && status === 'OK' && timeText && timeText !== '0') {
+          splits.push({ controlCode: 'F', time: timeText });
         }
         
         runners.push({
@@ -134,12 +155,18 @@ class ResultsExportService {
           startTime: '0',
           runTime: timeText,
           place: position,
-          gender,
-          splits: splits.length > 0 ? splits : undefined
+          splits: splits.length > 0 ? splits : undefined,
+          firstName: givenName,
+          lastName: familyName,
+          yearOfBirth,
+          sex: sex?.toUpperCase(),
+          cardNumber: controlCard,
+          startTime_raw: startTimeElement?.textContent?.trim(),
+          finishTime_raw: finishTimeElement?.textContent?.trim()
         });
       });
       
-      // Sort runners by place (finished first), then by name (match OE ordering within class)
+      // Sort runners by place (finished first), then by name
       runners.sort((a, b) => {
         const placeA = parseInt(a.place) || 999;
         const placeB = parseInt(b.place) || 999;
@@ -154,15 +181,63 @@ class ResultsExportService {
       results.push({
         classId,
         className,
-        courseId,
-        courseName,
         courseLength: courseLength ? parseInt(courseLength) : undefined,
+        courseClimb: courseClimb ? parseInt(courseClimb) : undefined,
+        courseControls: courseControls ? parseInt(courseControls) : undefined,
+        courseName,
         runners
       });
     });
     
-    // Preserve OE class order as it appears in the XML (no re-sorting here)
+    // Sort classes by course color order if class names contain color keywords
+    results.sort((a, b) => {
+      const colorA = this.extractCourseColor(a.className);
+      const colorB = this.extractCourseColor(b.className);
+      
+      if (colorA && colorB) {
+        const indexA = COURSE_COLOR_ORDER.indexOf(colorA);
+        const indexB = COURSE_COLOR_ORDER.indexOf(colorB);
+        
+        if (indexA !== -1 && indexB !== -1) {
+          return indexA - indexB;
+        }
+      }
+      
+      return a.className.localeCompare(b.className);
+    });
+    
     return results;
+  }
+  
+  /**
+   * Extract course color from class name
+   */
+  private extractCourseColor(className: string): string | null {
+    const lowerName = className.toLowerCase();
+    
+    for (const color of COURSE_COLOR_ORDER) {
+      if (lowerName.includes(color)) {
+        return color;
+      }
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Get status text from MeOS status code
+   */
+  private getStatusText(statusCode: string): string {
+    const code = parseInt(statusCode);
+    
+    switch (code) {
+      case 1: return 'OK';
+      case 3: return 'MP'; // Mispunch
+      case 4: return 'DNS'; // Did Not Start
+      case 5: return 'DNF'; // Did Not Finish
+      case 20: return 'NotStarted';
+      default: return 'Unknown';
+    }
   }
   
   /**
@@ -558,11 +633,11 @@ class ResultsExportService {
   generateSplitsByCourseHTML(classResults: ClassResult[], eventName: string, eventDate: string): string {
     const timestamp = new Date().toLocaleString();
     
-    // Group classes by course name
+    // Group classes by course (using class name as course identifier for now)
     const courseMap = new Map<string, ClassResult[]>();
     
     classResults.forEach(classResult => {
-      const courseName = classResult.courseName || classResult.className;
+      const courseName = classResult.className;
       if (!courseMap.has(courseName)) {
         courseMap.set(courseName, []);
       }
@@ -863,70 +938,14 @@ tr#fix { background-color: #E0FFFF; }
 <table id=ln><tr><td>&nbsp</td></tr></table>
 `;
     
-    // Group classes by course name for splits
-    const courseMap = new Map<string, ClassResult[]>();
+    // Generate splits for each class
     classResults.forEach(classResult => {
-      const courseName = classResult.courseName || classResult.className;
-      if (!courseMap.has(courseName)) {
-        courseMap.set(courseName, []);
-      }
-      courseMap.get(courseName)!.push(classResult);
-    });
-    
-    // Generate splits for each course
-    courseMap.forEach((classes, courseName) => {
-      // Get all runners from all classes on this course
-      const allRunnersOnCourse: RunnerResult[] = [];
-      let courseLength: number | undefined;
-      
-      classes.forEach(classResult => {
-        const runnersWithSplits = classResult.runners.filter(r => r.splits && r.splits.length > 0);
-        runnersWithSplits.forEach(runner => {
-          allRunnersOnCourse.push({
-            ...runner,
-            // Store class name for display in the "Cl." column
-            club: `${runner.club}|${classResult.className}` // Temporarily store class name here
-          });
-        });
-        if (!courseLength && classResult.courseLength) {
-          courseLength = classResult.courseLength;
-        }
-      });
-      
-      // Sort all runners on this course by finish time (OK status first, then by time)
-      allRunnersOnCourse.sort((a, b) => {
-        // OK status comes first
-        if (a.status === 'OK' && b.status !== 'OK') return -1;
-        if (a.status !== 'OK' && b.status === 'OK') return 1;
-        
-        // Both OK - sort by time
-        if (a.status === 'OK' && b.status === 'OK') {
-          const timeA = typeof a.runTime === 'string' ? parseInt(a.runTime) : a.runTime;
-          const timeB = typeof b.runTime === 'string' ? parseInt(b.runTime) : b.runTime;
-          return timeA - timeB;
-        }
-        
-        // Neither OK - sort by name
-        return a.name.localeCompare(b.name);
-      });
-      
-      // Assign course-based place numbers (renumber 1, 2, 3... based on course finish order)
-      let coursePlace = 1;
-      allRunnersOnCourse.forEach((runner) => {
-        if (runner.status === 'OK') {
-          runner.place = coursePlace.toString();
-          coursePlace++;
-        } else {
-          runner.place = ''; // No place for non-finishers
-        }
-      });
-      
-      const runnersWithSplits = allRunnersOnCourse;
+      const runnersWithSplits = classResult.runners.filter(r => r.splits && r.splits.length > 0);
       if (runnersWithSplits.length === 0) return;
       
       const courseInfo = [];
-      if (courseLength) {
-        courseInfo.push(`${(courseLength / 1000).toFixed(1)} km`);
+      if (classResult.courseLength) {
+        courseInfo.push(`${(classResult.courseLength / 1000).toFixed(1)} km`);
       }
       const courseInfoText = courseInfo.join('  ');
       
@@ -937,7 +956,7 @@ tr#fix { background-color: #E0FFFF; }
 <table id=ln><tr><td>&nbsp</td></tr></table>
 <table width=1382px>
 <tbody>
-<tr><td id=c00 width=248px>${courseName}  (${runnersWithSplits.length})<td id=c01 width=168px>${courseInfoText}<td id=c02 width=82px>${controlsText}<td id="header"></td>
+<tr><td id=c00 width=248px>${classResult.className}  (${runnersWithSplits.length})<td id=c01 width=168px>${courseInfoText}<td id=c02 width=82px>${controlsText}<td id="header"></td>
 </tr>
 </tbody>
 </table>
@@ -957,9 +976,9 @@ tr#fix { background-color: #E0FFFF; }
 <table width=1382px>
 <col width=40px>
 <col width=50px>
-<col width=130px>
-<col width=120px>
-<col width=64px>`;
+<col width=168px>
+<col width=56px>
+<col width=74px>`;
       
       for (let i = 0; i < maxControlsPerRow; i++) {
         html += `\n<col width=71px>`;
@@ -980,9 +999,9 @@ tr#fix { background-color: #E0FFFF; }
 <table width=1382px>
 <col width=40px>
 <col width=50px>
-<col width=130px>
-<col width=120px>
-<col width=64px>`;
+<col width=168px>
+<col width=56px>
+<col width=74px>`;
       
       for (let i = 0; i < maxControlsPerRow; i++) {
         html += `\n<col width=71px>`;
@@ -1060,11 +1079,8 @@ tr#fix { background-color: #E0FFFF; }
           prevTime = cumTime;
         });
         
-        // Extract class name and club from the combined field
-        const [actualClub, className] = (runner.club || '|').split('|');
-        
         // Row 1: Name and cumulative times (first set of controls)
-        html += `<tr ${bgClass}><td id=c10>${place}<td id=c11>${stno}<td id=c12><nobr>${runner.name}</nobr><td><nobr>${className || ''}</nobr><td id=c14>${totalTime}`;
+        html += `<tr ${bgClass}><td id=c10>${place}<td id=c11>${stno}<td id=c12><nobr>${runner.name}</nobr><td><nobr>${classResult.className}</nobr><td id=c14>${totalTime}`;
         
         const firstRowControls = Math.min(maxControlsPerRow, runner.splits!.length);
         for (let i = 0; i < firstRowControls; i++) {
@@ -1081,7 +1097,7 @@ tr#fix { background-color: #E0FFFF; }
         html += `</tr>\n`;
         
         // Row 2: Club and leg times (first set of controls)
-        html += `<tr><td id=c10><td id=c11><td id=c12><nobr>${actualClub || ''}</nobr><td><nobr></nobr><td id=c14>`;
+        html += `<tr><td id=c10><td id=c11><td id=c12><nobr>${runner.club}</nobr><td><nobr></nobr><td id=c14>`;
         
         for (let i = 0; i < firstRowControls; i++) {
           const legTime = legTimes[i];
@@ -1176,6 +1192,138 @@ tr#fix { background-color: #E0FFFF; }
     } else {
       return { color: '#c00000', bold: false }; // Red (slow)
     }
+  }
+
+  /**
+   * Generate OE12-format CSV for database upload
+   * Uses comma delimiter to match OE12 export format
+   */
+  generateCSV(
+    classResults: ClassResult[],
+    correctedData: Map<string, { firstName: string; lastName: string; yearOfBirth?: number; club?: string }>
+  ): string {
+    const lines: string[] = [];
+    
+    // Header row (matching OE12 format)
+    lines.push('OE0012_V12,Entry Id,Stno,XStno,Chipno,Database Id,IOF Id,Surname,First name,Birthdate,YB,S,Block,nc,Start,Finish,Time,Classifier,Credit -,Penalty +,Comment,Club no.,Cl.name,City,Nat,Location,Region,Cl. no.,Short,Long,Entry cl. No,Entry class (short),Entry class (long),Rank,Ranking points,Num1,Num2,Num3,Text1,Text2,Text3,Addr. surname,Addr. first name,Street,Line2,Zip,Addr. city,Phone,Mobile,Fax,EMail,Rented,Start fee,Paid,Team id,Team name,Person Nat,Course no.,Course,km,m,Course controls,Place,');
+    
+    // Process each class (no separate row numbering, each data row starts directly)
+    for (const classResult of classResults) {
+      for (const runner of classResult.runners) {
+        // Get corrected data if available
+        const runnerId = `${runner.firstName}_${runner.lastName}`;
+        const corrected = correctedData.get(runnerId);
+        
+        const firstName = corrected?.firstName || runner.firstName || '';
+        const lastName = corrected?.lastName || runner.lastName || '';
+        const yearOfBirth = corrected?.yearOfBirth || runner.yearOfBirth || '';
+        const club = corrected?.club || runner.club || '';
+        
+        // Format times (OE12 uses HH:MM:SS format)
+        const startTime = runner.startTime_raw || '';
+        const finishTime = runner.finishTime_raw || '';
+        const runTime = runner.status === 'OK' && runner.runTime ? this.formatTimeForCSV(runner.runTime) : '';
+        
+        // Calculate classifier (0=OK, 2=MP, 3=DNS, etc.)
+        let classifier = '0';
+        if (runner.status === 'MissingPunch' || runner.status === 'MP') classifier = '2';
+        else if (runner.status === 'DidNotStart' || runner.status === 'DNS') classifier = '3';
+        else if (runner.status === 'DidNotFinish' || runner.status === 'DNF') classifier = '2';
+        else if (runner.status !== 'OK') classifier = '0';
+        
+        // Build the row (matching the reference CSV format)
+        const fields = [
+          '',  // Entry Id
+          '',  // Stno
+          '',  // XStno
+          runner.cardNumber || '',  // Chipno
+          '',  // Database Id
+          '',  // IOF Id (quoted empty)
+          lastName,  // Surname
+          firstName,  // First name
+          '',  // Birthdate (full)
+          yearOfBirth.toString(),  // YB
+          runner.sex || '',  // S (sex)
+          '',  // Block
+          runner.status !== 'OK' ? 'X' : '0',  // nc (non-competing marker)
+          startTime,  // Start
+          finishTime,  // Finish
+          runTime,  // Time
+          classifier,  // Classifier
+          '',  // Credit -
+          '',  // Penalty +
+          '',  // Comment (quoted empty)
+          '',  // Club no. (quoted empty)
+          '',  // Cl.name (quoted empty)
+          club,  // City (we use this for club name)
+          '',  // Nat (quoted empty)
+          '',  // Location (quoted empty)
+          '',  // Region (quoted empty)
+          classResult.classId || '',  // Cl. no.
+          classResult.className,  // Short
+          classResult.className,  // Long
+          '',  // Entry cl. No
+          '',  // Entry class (short) (quoted empty)
+          '',  // Entry class (long) (quoted empty)
+          '',  // Rank
+          '',  // Ranking points
+          '',  // Num1
+          '',  // Num2
+          '',  // Num3
+          '',  // Text1 (quoted empty)
+          '',  // Text2 (quoted empty)
+          '',  // Text3 (quoted empty)
+          '',  // Addr. surname (quoted empty)
+          '',  // Addr. first name (quoted empty)
+          '',  // Street (quoted empty)
+          '',  // Line2 (quoted empty)
+          '',  // Zip (quoted empty)
+          '',  // Addr. city (quoted empty)
+          '',  // Phone
+          '',  // Mobile (quoted empty)
+          '',  // Fax (quoted empty)
+          '',  // EMail (quoted empty)
+          '0',  // Rented
+          '"0.00"',  // Start fee
+          'X',  // Paid
+          '',  // Team id
+          '',  // Team name (quoted empty)
+          '',  // Person Nat (quoted empty)
+          classResult.courseId || '',  // Course no.
+          classResult.courseName || classResult.className,  // Course
+          classResult.courseLength ? `"${(classResult.courseLength / 1000).toFixed(1)}"` : '',  // km
+          classResult.courseClimb?.toString() || '',  // m
+          classResult.courseControls?.toString() || '',  // Course controls
+          runner.place || '',  // Place
+          ''  // Final empty field
+        ];
+        
+        // Quote fields that need quoting (mostly empty strings)
+        const quotedFields = fields.map((field, idx) => {
+          // Quote specific fields that appear quoted in the reference CSV
+          if ([6, 20, 21, 22, 23, 24, 25, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 52, 53].includes(idx)) {
+            return `"${field}"`;
+          }
+          return field;
+        });
+        
+        
+        lines.push(quotedFields.join(','));
+      }
+    }
+    return lines.join('\r\n');
+  }
+  
+  /**
+   * Format time for CSV (MM:SS format)
+   */
+  private formatTimeForCSV(timeInSeconds: string): string {
+    const seconds = parseInt(timeInSeconds);
+    if (isNaN(seconds) || seconds === 0) return '';
+    
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
   }
 }
 
