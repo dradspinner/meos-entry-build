@@ -919,9 +919,9 @@ tr#fix { background-color: #E0FFFF; }
 <table width=1382px>
 <col width=40px>
 <col width=50px>
-<col width=150px>
-<col width=90px>
-<col width=74px>`;
+<col width=130px>
+<col width=120px>
+<col width=64px>`;
       
       for (let i = 0; i < maxControlsPerRow; i++) {
         html += `\n<col width=71px>`;
@@ -942,9 +942,9 @@ tr#fix { background-color: #E0FFFF; }
 <table width=1382px>
 <col width=40px>
 <col width=50px>
-<col width=150px>
-<col width=90px>
-<col width=74px>`;
+<col width=130px>
+<col width=120px>
+<col width=64px>`;
       
       for (let i = 0; i < maxControlsPerRow; i++) {
         html += `\n<col width=71px>`;
