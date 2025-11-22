@@ -53,10 +53,30 @@ const CSVReviewAndFix: React.FC<CSVReviewAndFixProps> = ({
         })
     : validations.map((v, idx) => ({ validation: v, originalIndex: idx }));
 
-  const handleSourceSelect = (index: number, source: 'xml' | 'db') => {
+  const handleSourceSelect = async (index: number, source: 'xml' | 'db') => {
     const updated = [...validations];
-    csvValidationService.applyCorrection(updated[index], source);
+    const validation = updated[index];
+    csvValidationService.applyCorrection(validation, source);
     setValidations(updated);
+    
+    // If selecting XML (results) and runner is in DB, update the DB with XML values
+    if (source === 'xml' && validation.dbRunner) {
+      try {
+        const finalData = csvValidationService.getFinalData(validation);
+        sqliteRunnerDB.upsertRunner({
+          id: validation.dbRunner.id,
+          first_name: finalData.firstName,
+          last_name: finalData.lastName,
+          birth_year: finalData.yearOfBirth,
+          club: finalData.club,
+          nationality: validation.dbRunner.nationality || 'USA'
+        });
+        messageApi.success(`Updated ${finalData.firstName} ${finalData.lastName} in database`);
+      } catch (error) {
+        console.error('[CSVReview] Failed to update runner in database:', error);
+        messageApi.error(`Failed to update database: ${error}`);
+      }
+    }
     
     // Mark this row as fixed
     setFixedRows(prev => new Set(prev).add(index));
@@ -75,9 +95,10 @@ const CSVReviewAndFix: React.FC<CSVReviewAndFixProps> = ({
     });
   };
 
-  const handleSaveEdit = (index: number) => {
+  const handleSaveEdit = async (index: number) => {
     const updated = [...validations];
-    csvValidationService.applyCorrection(updated[index], 'custom', {
+    const validation = updated[index];
+    csvValidationService.applyCorrection(validation, 'custom', {
       firstName: editForm.firstName,
       lastName: editForm.lastName,
       yearOfBirth: editForm.yearOfBirth ? parseInt(editForm.yearOfBirth) : undefined,
@@ -85,6 +106,25 @@ const CSVReviewAndFix: React.FC<CSVReviewAndFixProps> = ({
     });
     setValidations(updated);
     setEditingKey('');
+    
+    // If runner is in DB, update the database with edited values
+    if (validation.dbRunner) {
+      try {
+        const finalData = csvValidationService.getFinalData(validation);
+        sqliteRunnerDB.upsertRunner({
+          id: validation.dbRunner.id,
+          first_name: finalData.firstName,
+          last_name: finalData.lastName,
+          birth_year: finalData.yearOfBirth,
+          club: finalData.club,
+          nationality: validation.dbRunner.nationality || 'USA'
+        });
+        messageApi.success(`Updated ${finalData.firstName} ${finalData.lastName} in database`);
+      } catch (error) {
+        console.error('[CSVReview] Failed to update runner in database:', error);
+        messageApi.error(`Failed to update database: ${error}`);
+      }
+    }
     
     // Mark this row as fixed
     setFixedRows(prev => new Set(prev).add(index));
@@ -94,8 +134,10 @@ const CSVReviewAndFix: React.FC<CSVReviewAndFixProps> = ({
     setEditingKey('');
   };
 
-  const handleAcceptAll = (source: 'xml' | 'db') => {
+  const handleAcceptAll = async (source: 'xml' | 'db') => {
     const newFixedRows = new Set(fixedRows);
+    let updatedCount = 0;
+    
     const updated = validations.map((v, idx) => {
       if (!v.correctedData && (v.dbRunner || source === 'xml')) {
         csvValidationService.applyCorrection(v, source);
@@ -103,9 +145,39 @@ const CSVReviewAndFix: React.FC<CSVReviewAndFixProps> = ({
         if (v.discrepancies.name || v.discrepancies.yearOfBirth || v.discrepancies.club) {
           newFixedRows.add(idx);
         }
+        
+        // If accepting from XML and runner is in DB, update the database
+        if (source === 'xml' && v.dbRunner) {
+          const finalData = csvValidationService.getFinalData(v);
+          try {
+            sqliteRunnerDB.upsertRunner({
+              id: v.dbRunner.id,
+              first_name: finalData.firstName,
+              last_name: finalData.lastName,
+              birth_year: finalData.yearOfBirth,
+              club: finalData.club,
+              nationality: v.dbRunner.nationality || 'USA'
+            }, true); // Skip individual saves for batch
+            updatedCount++;
+          } catch (error) {
+            console.error('[CSVReview] Failed to update runner:', error);
+          }
+        }
       }
       return v;
     });
+    
+    // Save database once at the end if we updated any runners
+    if (source === 'xml' && updatedCount > 0) {
+      try {
+        sqliteRunnerDB.save();
+        messageApi.success(`Updated ${updatedCount} runners in database`);
+      } catch (error) {
+        console.error('[CSVReview] Failed to save database:', error);
+        messageApi.error(`Failed to save database updates: ${error}`);
+      }
+    }
+    
     setValidations(updated);
     setFixedRows(newFixedRows);
   };
@@ -546,12 +618,20 @@ const CSVReviewAndFix: React.FC<CSVReviewAndFixProps> = ({
           <Button size="large" onClick={onCancel}>
             Cancel
           </Button>
+          {pendingCount > 0 && (
+            <Button
+              size="large"
+              onClick={handleComplete}
+              icon={<FileTextOutlined />}
+            >
+              Skip Review & Generate CSV
+            </Button>
+          )}
           <Button
             type="primary"
             size="large"
             icon={<CheckCircleOutlined />}
             onClick={handleComplete}
-            disabled={pendingCount > 0}
           >
             {pendingCount > 0 ? `Review ${pendingCount} More` : 'Generate CSV'}
           </Button>

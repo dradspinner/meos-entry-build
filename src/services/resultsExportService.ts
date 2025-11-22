@@ -1204,10 +1204,10 @@ tr#fix { background-color: #E0FFFF; }
   ): string {
     const lines: string[] = [];
     
-    // Header row (matching OE12 format)
+    // Header row (NO line number prefix in OE12 format)
     lines.push('OE0012_V12,Entry Id,Stno,XStno,Chipno,Database Id,IOF Id,Surname,First name,Birthdate,YB,S,Block,nc,Start,Finish,Time,Classifier,Credit -,Penalty +,Comment,Club no.,Cl.name,City,Nat,Location,Region,Cl. no.,Short,Long,Entry cl. No,Entry class (short),Entry class (long),Rank,Ranking points,Num1,Num2,Num3,Text1,Text2,Text3,Addr. surname,Addr. first name,Street,Line2,Zip,Addr. city,Phone,Mobile,Fax,EMail,Rented,Start fee,Paid,Team id,Team name,Person Nat,Course no.,Course,km,m,Course controls,Place,');
     
-    // Process each class (no separate row numbering, each data row starts directly)
+    // Process each class
     for (const classResult of classResults) {
       for (const runner of classResult.runners) {
         // Get corrected data if available
@@ -1216,114 +1216,137 @@ tr#fix { background-color: #E0FFFF; }
         
         const firstName = corrected?.firstName || runner.firstName || '';
         const lastName = corrected?.lastName || runner.lastName || '';
-        const yearOfBirth = corrected?.yearOfBirth || runner.yearOfBirth || '';
+        const yearOfBirth = corrected?.yearOfBirth || runner.yearOfBirth;
         const club = corrected?.club || runner.club || '';
         
-        // Format times (OE12 uses HH:MM:SS format)
-        const startTime = runner.startTime_raw || '';
-        const finishTime = runner.finishTime_raw || '';
+        // Format times - OE12 uses simple time format (h:mm:ss or hh:mm:ss)
+        const startTime = this.formatTimeForOE12(runner.startTime_raw);
+        const finishTime = this.formatTimeForOE12(runner.finishTime_raw);
         const runTime = runner.status === 'OK' && runner.runTime ? this.formatTimeForCSV(runner.runTime) : '';
         
-        // Calculate classifier (0=OK, 2=MP, 3=DNS, etc.)
+        // Calculate classifier (0=OK, 2=MP/DNF, 3=DNS)
         let classifier = '0';
         if (runner.status === 'MissingPunch' || runner.status === 'MP') classifier = '2';
         else if (runner.status === 'DidNotStart' || runner.status === 'DNS') classifier = '3';
         else if (runner.status === 'DidNotFinish' || runner.status === 'DNF') classifier = '2';
         else if (runner.status !== 'OK') classifier = '0';
         
-        // Build the row (matching the reference CSV format)
+        // Build the row fields (NO line number prefix)
         const fields = [
+          '',  // OE0012_V12 column (empty for data rows)
           '',  // Entry Id
           '',  // Stno
           '',  // XStno
           runner.cardNumber || '',  // Chipno
-          '',  // Database Id
-          '',  // IOF Id (quoted empty)
-          lastName,  // Surname
-          firstName,  // First name
-          '',  // Birthdate (full)
-          yearOfBirth.toString(),  // YB
-          runner.sex || '',  // S (sex)
+          '""',  // Database Id (quoted empty in OE12)
+          '""',  // IOF Id (quoted empty)
+          `"${lastName}"`,  // Surname (quoted)
+          `"${firstName}"`,  // First name (quoted)
+          '',  // Birthdate (full date - empty)
+          yearOfBirth || '',  // YB (no quotes, just number or empty)
+          runner.sex || '',  // S (sex - M or F, no quotes)
           '',  // Block
-          runner.status !== 'OK' ? 'X' : '0',  // nc (non-competing marker)
-          startTime,  // Start
-          finishTime,  // Finish
-          runTime,  // Time
-          classifier,  // Classifier
+          runner.status === 'NotCompeting' ? 'X' : '0',  // nc - X for NotCompeting, 0 otherwise
+          startTime,  // Start (h:mm:ss format)
+          finishTime,  // Finish (h:mm:ss format)
+          runTime,  // Time (m:ss or h:mm:ss format)
+          classifier,  // Classifier (0=OK, 2=MP/DNF, 3=DNS)
           '',  // Credit -
           '',  // Penalty +
-          '',  // Comment (quoted empty)
-          '',  // Club no. (quoted empty)
-          '',  // Cl.name (quoted empty)
-          club,  // City (we use this for club name)
-          '',  // Nat (quoted empty)
-          '',  // Location (quoted empty)
-          '',  // Region (quoted empty)
+          '""',  // Comment (quoted empty)
+          '',  // Club no. (empty, no quotes in reference)
+          '""',  // Cl.name (quoted empty)
+          `"${club}"`,  // City (quoted, we use this for club name)
+          '""',  // Nat (quoted empty)
+          '""',  // Location (quoted empty)
+          '""',  // Region (quoted empty)
           classResult.classId || '',  // Cl. no.
-          classResult.className,  // Short
-          classResult.className,  // Long
+          `"${classResult.className}"`,  // Short (quoted)
+          `"${classResult.className}"`,  // Long (quoted)
           '',  // Entry cl. No
-          '',  // Entry class (short) (quoted empty)
-          '',  // Entry class (long) (quoted empty)
+          '""',  // Entry class (short) (quoted empty)
+          '""',  // Entry class (long) (quoted empty)
           '',  // Rank
           '',  // Ranking points
           '',  // Num1
           '',  // Num2
           '',  // Num3
-          '',  // Text1 (quoted empty)
-          '',  // Text2 (quoted empty)
-          '',  // Text3 (quoted empty)
-          '',  // Addr. surname (quoted empty)
-          '',  // Addr. first name (quoted empty)
-          '',  // Street (quoted empty)
-          '',  // Line2 (quoted empty)
-          '',  // Zip (quoted empty)
-          '',  // Addr. city (quoted empty)
-          '',  // Phone
-          '',  // Mobile (quoted empty)
-          '',  // Fax (quoted empty)
-          '',  // EMail (quoted empty)
-          '0',  // Rented
-          '"0.00"',  // Start fee
-          'X',  // Paid
+          '""',  // Text1 (quoted empty)
+          '""',  // Text2 (quoted empty)
+          '""',  // Text3 (quoted empty)
+          '""',  // Addr. surname (quoted empty)
+          '""',  // Addr. first name (quoted empty)
+          '""',  // Street (quoted empty)
+          '""',  // Line2 (quoted empty)
+          '""',  // Zip (quoted empty)
+          '""',  // Addr. city (quoted empty)
+          '',  // Phone (empty, no quotes)
+          '""',  // Mobile (quoted empty)
+          '""',  // Fax (quoted empty)
+          '""',  // EMail (quoted empty)
+          '0',  // Rented (0 or X, no quotes)
+          '"0.00"',  // Start fee (quoted)
+          'X',  // Paid (X or 0, no quotes)
           '',  // Team id
-          '',  // Team name (quoted empty)
-          '',  // Person Nat (quoted empty)
+          '""',  // Team name (quoted empty)
+          '""',  // Person Nat (quoted empty)
           classResult.courseId || '',  // Course no.
-          classResult.courseName || classResult.className,  // Course
-          classResult.courseLength ? `"${(classResult.courseLength / 1000).toFixed(1)}"` : '',  // km
-          classResult.courseClimb?.toString() || '',  // m
-          classResult.courseControls?.toString() || '',  // Course controls
-          runner.place || '',  // Place
-          ''  // Final empty field
+          classResult.courseName || classResult.className,  // Course (no quotes)
+          classResult.courseLength ? `"${(classResult.courseLength / 1000).toFixed(1)}"` : '',  // km (quoted)
+          classResult.courseClimb?.toString() || '',  // m (no quotes)
+          classResult.courseControls?.toString() || '',  // Course controls (no quotes)
+          runner.place || '',  // Place (no quotes)
+          ''  // Final empty field (trailing comma)
         ];
         
-        // Quote fields that need quoting (mostly empty strings)
-        const quotedFields = fields.map((field, idx) => {
-          // Quote specific fields that appear quoted in the reference CSV
-          if ([6, 20, 21, 22, 23, 24, 25, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 52, 53].includes(idx)) {
-            return `"${field}"`;
-          }
-          return field;
-        });
-        
-        
-        lines.push(quotedFields.join(','));
+        // NO line number prefix - just comma-separated fields
+        lines.push(fields.join(','));
       }
     }
     return lines.join('\r\n');
   }
   
   /**
-   * Format time for CSV (MM:SS format)
+   * Format time for CSV (h:mm:ss format matching OE12)
    */
   private formatTimeForCSV(timeInSeconds: string): string {
     const seconds = parseInt(timeInSeconds);
     if (isNaN(seconds) || seconds === 0) return '';
     
-    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    } else {
+      return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    }
+  }
+  
+  /**
+   * Format ISO timestamp to OE12 simple time format (h:mm:ss or hh:mm:ss)
+   * Input: "2025-11-15T12:20:09.000" or similar ISO format
+   * Output: "12:20:09" (simple time without date)
+   */
+  private formatTimeForOE12(isoTimestamp?: string): string {
+    if (!isoTimestamp) return '';
+    
+    try {
+      // Extract time portion from ISO timestamp
+      // Format: 2025-11-15T12:20:09.000 -> 12:20:09
+      const timeMatch = isoTimestamp.match(/T(\d{1,2}):(\d{2}):(\d{2})/);
+      if (timeMatch) {
+        const hours = parseInt(timeMatch[1]);
+        const minutes = timeMatch[2];
+        const seconds = timeMatch[3];
+        return `${hours}:${minutes}:${seconds}`;
+      }
+      return '';
+    } catch (error) {
+      console.error('[ResultsExport] Failed to format time:', error);
+      return '';
+    }
   }
 }
 
